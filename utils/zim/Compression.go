@@ -6,8 +6,9 @@ type Compression uint8
 const (
 
 	// Current Formats
-	CompressionNone   Compression = 1
-	CompressionLZMA   Compression = 4
+	CompressionNone Compression = 1
+	CompressionLZMA Compression = 4
+	CompressionZSTD Compression = 5
 
 	// Legacy Formats
 	CompressionLegacyNone  Compression = 0
