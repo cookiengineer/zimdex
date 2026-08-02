@@ -352,8 +352,12 @@ func TestExtractor(t *testing.T) {
 		}
 	}
 
-	if _, ok := found["https://other.com/page"]; ok {
-		t.Error("external link should not have been extracted")
+	extURL := "https://other.com/page"
+	et, ok := found[extURL]
+	if !ok {
+		t.Errorf("expected external link %q to be extracted as EntryTypeExternalPage", extURL)
+	} else if et != EntryTypeExternalPage {
+		t.Errorf("external link %q: expected %s, got %s", extURL, EntryTypeExternalPage, et)
 	}
 }
 

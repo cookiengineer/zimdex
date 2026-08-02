@@ -362,11 +362,13 @@ This roadmap tracks all implementation tasks for ZIMdex, organized by phase. Eac
 ### 3.6 Asset Extraction
 
 - [x] **3.6.1** — Implement `internal/archive/extractor.go`
-  - `Extractor` struct with `baseURL`, `primaryHost`, `referrer`
+  - `Extractor` struct with `baseURL`, `primaryHost`, `referrer`, `FollowPages bool`
+  - `NewExtractor()` — creates extractor with FollowPages=true (extracts both assets and page links)
+  - `NewExtractorAssetsOnly()` — creates extractor with FollowPages=false (extracts only assets, skips `<a>` / `<iframe>` page links)
   - `Extract()` — parses HTML with `golang.org/x/net/html`, walks node tree
   - Handles: `<img src/srcset>`, `<link rel=stylesheet>`, `<script src>`, `<source src/srcset>`, `<video/audio src/poster>`, `<track src>`, `<object data>`, `<embed src>`
-  - `<a href>` classification: same host → EntryTypePage; download attr OR known file extension → EntryTypeAsset; external → skipped
-  - `<iframe src>` → EntryTypePage if same host
+  - `<a href>` classification: same host → EntryTypePage; different host → EntryTypeExternalPage; download attr OR known file extension → EntryTypeAsset
+  - `<iframe src>` classification: same host → EntryTypePage; different host → EntryTypeExternalPage
   - Inline `<style>` CSS: extracts `url()` and `@import` references
   - `ExtractedURL` return type with URL + EntryType classification
 
@@ -401,9 +403,11 @@ This roadmap tracks all implementation tasks for ZIMdex, organized by phase. Eac
   - `Start()` spawns page + asset workers, `Pause()` cancels context and saves queue, `Continue()` reloads and restarts
   - `Stop()` cancels and drains workers
   - `worker()` loop: `PopPending` → `Download` → `RecalcStats` → `extractAndEnqueue` → `Save`
+  - Page workers also pop `EntryTypeExternalPage` entries when no primary pages remain
+  - External pages use `NewExtractorAssetsOnly` (FollowPages=false) for asset-only extraction, no page link following
   - Fixed: completion check waits for both `PendingCount==0` AND `DownloadingCount==0`
   - Fixed: `RecalcStats` called after each download to keep stats in sync
-  - Cross-host asset handling: assets from other hosts/CDNs enqueued with correct hostname-based paths
+  - Cross-host asset handling: assets + external pages from other hosts/CDNs enqueued with correct hostname-based paths
 
 ### 4.2 ZIM Builder
 
@@ -658,6 +662,7 @@ This roadmap tracks all implementation tasks for ZIMdex, organized by phase. Eac
 | Queue resume | `ResetStale()` resets failed+downloading entries to pending on restart, preserves downloaded |
 | Live archive UI | Progress bars, activity feed (50-entry ring buffer via `RecentActivity()`), auto-polling, pause/continue/stop/build buttons |
 | `/api/filters` endpoint | Returns available filter plugins for archive UI checkboxes |
+| External page extraction | `<a>` / `<iframe>` links to other hostnames now extracted as `EntryTypeExternalPage` instead of discarded. External pages are downloaded, their assets extracted via `NewExtractorAssetsOnly` (FollowPages=false), but their page links are not followed — single-depth only |
 
 ---
 

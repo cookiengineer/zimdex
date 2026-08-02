@@ -354,6 +354,10 @@ func (s *Scraper) worker(ctx context.Context, entryType EntryType) {
 		s.mu.RUnlock()
 
 	entry := s.queue.PopPending(entryType)
+	if entry == nil && entryType == EntryTypePage {
+		entry = s.queue.PopPending(EntryTypeExternalPage)
+	}
+
 	if entry == nil {
 		remaining := s.queue.PendingCount()
 		active := s.queue.DownloadingCount()
@@ -392,7 +396,7 @@ func (s *Scraper) worker(ctx context.Context, entryType EntryType) {
 
 		s.queue.RecalcStats()
 
-		if entry.Status == StatusDownloaded && entryType == EntryTypePage {
+		if entry.Status == StatusDownloaded && (entry.EntryType == EntryTypePage || entry.EntryType == EntryTypeExternalPage) {
 			if s.PageLimit > 0 && s.queue.DownloadedCount() >= s.PageLimit {
 				s.log("Page limit reached (%d)", s.PageLimit)
 			} else {
@@ -420,6 +424,9 @@ func (s *Scraper) extractAndEnqueue(entry *QueueEntry) {
 	activeFilters := filters.Enabled(s.FilterNames)
 
 	ext, err := NewExtractor(pageURL, s.Host, pageURL)
+	if entry.EntryType == EntryTypeExternalPage {
+		ext, err = NewExtractorAssetsOnly(pageURL, s.Host, pageURL)
+	}
 	if err != nil {
 		return
 	}

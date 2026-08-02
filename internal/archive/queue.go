@@ -15,8 +15,9 @@ import (
 type EntryType string
 
 const (
-	EntryTypePage  EntryType = "page"
-	EntryTypeAsset EntryType = "asset"
+	EntryTypePage         EntryType = "page"
+	EntryTypeAsset        EntryType = "asset"
+	EntryTypeExternalPage EntryType = "external_page"
 )
 
 type QueueStatus string

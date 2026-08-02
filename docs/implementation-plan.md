@@ -120,16 +120,21 @@ Serves archived content from ZIM files. Pipeline:
 
 ## Scraping Architecture
 
-### Two-Phase Queue Model
+### Queue Model
 
-The scraper maintains two logical queues within a single JSON file:
+The scraper maintains three entry types within a single queue JSON file:
 
-| Queue | Source of entries | Behavior |
+| Entry Type | Source of entries | Behavior |
 |---|---|---|
-| **Page queue** | Seed URL, sitemap URLs, `<a href>` links on same hostname | Downloaded → HTML parsed → assets extracted → new pages enqueued |
-| **Asset queue** | `<img>`, `<link>`, `<script>`, `<video>`, `<audio>`, `<source>`, `<track>`, `<a download>`, CSS `url()` / `@import` | Downloaded → terminal (no further extraction) |
+| **page** | Seed URL, sitemap URLs, `<a href>` links on same hostname | Downloaded → HTML parsed → assets extracted → new pages + external pages enqueued |
+| **external_page** | `<a href>` and `<iframe>` links to other hostnames | Downloaded → assets extracted only (FollowPages=false) → no link following (single-depth) |
+| **asset** | `<img>`, `<link>`, `<script>`, `<video>`, `<audio>`, `<source>`, `<track>`, `<a download>`, CSS `url()` / `@import` | Downloaded → terminal (no further extraction) |
 
-**Key rule**: Only HTML pages of the project's primary hostname trigger link extraction. Assets from any hostname (including cross-host) are downloaded but do NOT trigger further extraction. `<a download>` links with file extensions (`.pdf`, `.mp4`, `.zip`, etc.) are treated as assets, not pages.
+**Key rules:**
+- Primary host pages (`EntryTypePage`) trigger full extraction: same-host `<a>` links become `page`, external `<a>` links become `external_page`, and all assets become `asset`
+- External pages (`EntryTypeExternalPage`) trigger asset-only extraction via `NewExtractorAssetsOnly` (FollowPages=false). Their own page links are NOT followed — preventing unbounded crawling
+- Assets from any hostname (including cross-host) are downloaded but do NOT trigger further extraction
+- `<a download>` links with file extensions (`.pdf`, `.mp4`, `.zip`, etc.) are treated as assets, not pages
 
 ### Scraper State Machine
 
@@ -204,9 +209,10 @@ State transitions:
    └── Allowed or respect_robots=false → proceed
 3. Apply per-host throttle delay (adaptive based on error window)
 4. HTTP GET with 30s timeout
-   ├── 2xx: save body to cache path, detect Content-Type
-   │   ├── If entry_type=page: extract assets → enqueue new URLs
-   │   └── Mark status "downloaded"
+    ├── 2xx: save body to cache path, detect Content-Type
+    │   ├── If entry_type=page: extract assets + page links → enqueue new URLs
+    │   ├── If entry_type=external_page: extract assets only via NewExtractorAssetsOnly (FollowPages=false)
+    │   └── Mark status "downloaded"
    ├── 3xx: follow redirect (max 5 hops), enqueue final URL if different
    ├── 404: if retry_count < 2, wait 30s, retry. Else mark "failed"
    ├── 429: record error in window, apply Retry-After, retry after delay
@@ -239,8 +245,11 @@ Normalized URL becomes the deduplication key. Two URLs that normalize to the sam
 ├── en.wikipedia.org-2026-08-02.zim     # Built ZIM file
 ├── en.wikipedia.org-2026-08-03.zim     # Subsequent build (different date)
 │
-├── en.wikipedia.org.json               # Download queue for this hostname
-├── en.wikipedia.org/                   # Download cache mirroring URL paths
+├── en.wikipedia.org.json               # Download queue for the entire scrape
+│                                       # Contains all entry types (page, external_page, asset)
+│                                       # from all hostnames in a single JSON file
+│
+├── en.wikipedia.org/                   # Primary host download cache
 │   ├── wiki/
 │   │   ├── Main_Page                   # Raw HTTP response body
 │   │   ├── Quantum_Mechanics           #
@@ -252,10 +261,14 @@ Normalized URL becomes the deduplication key. Two URLs that normalize to the sam
 │   │       └── logo.png                #
 │   └── ...                             #
 │
-├── cdn.wikipedia.org.json              # Spanned host queue (if cross-host assets)
-└── cdn.wikipedia.org/                  # Spanned host cache
-    └── assets/
-        └── foo.mp3
+├── cdn.wikimedia.org/                  # Cross-host asset cache
+│   └── static/
+│       └── images/
+│           └── logo.png                #
+│
+└── news.example.com/                   # External page cache
+    └── 2024/
+        └── article.html                #
 ```
 
 ### Naming Convention
@@ -318,8 +331,9 @@ Throttle logic:
 type EntryType string
 
 const (
-    EntryTypePage  EntryType = "page"   // HTML page, triggers asset extraction
-    EntryTypeAsset EntryType = "asset"  // Static asset, terminal download
+    EntryTypePage         EntryType = "page"          // HTML page, triggers full extraction
+    EntryTypeExternalPage EntryType = "external_page" // External HTML page, triggers asset-only extraction
+    EntryTypeAsset        EntryType = "asset"         // Static asset, terminal download
 )
 
 type QueueStatus string
@@ -411,8 +425,10 @@ HTML pages are parsed with `golang.org/x/net/html`. The extractor walks the node
 | `<object>` | `data` | asset | Always |
 | `<embed>` | `src` | asset | Always |
 | `<a>` | `href` | page | Same hostname, no `download`, no file extension |
+| `<a>` | `href` | external_page | Different hostname, no `download`, no file extension |
 | `<a>` | `href` | asset | Has `download` attribute OR path ends with known file extension |
-| `<iframe>` | `src` | page | Same hostname (optional, configurable) |
+| `<iframe>` | `src` | page | Same hostname |
+| `<iframe>` | `src` | external_page | Different hostname |
 | CSS `url()` | inside `<style>` or fetched stylesheets | asset | Always |
 | CSS `@import` | inside `<style>` or fetched stylesheets | asset | Always |
 
@@ -436,9 +452,10 @@ The builder runs as a final step after scraping is complete (or when user manual
    - `SetIndexing(true, "eng")` — or detect language from HTML `<html lang>` attribute
    - `SetMainPath(zimPathOfStartURL)`
 2. Iterate all queue entries with `status == "downloaded"`:
-   - Read file bytes from download cache
-   - Create `zim.NewBytesItem(zimPath, mimeType, title, data)`
-   - Call `writer.AddItem(item)`
+    - Includes primary host pages, external pages, and assets from ALL hostnames
+    - Read file bytes from download cache at `dataDir/entry.Path`
+    - Create `zim.NewBytesItem(zimPath, mimeType, title, data)`
+    - Call `writer.AddItem(item)`
 3. Add metadata:
    - `Title`: from `<title>` of start page or hostname
    - `Creator`: "ZIMdex"

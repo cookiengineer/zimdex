@@ -155,6 +155,7 @@ worker(ctx, entryType):
     1. Check ctx.Done() → return (shutdown signal)
     2. Check scraper.status != "running" → return (paused/stopped)
     3. entry = queue.PopPending(entryType)
+       Page workers also try PopPending(ExternalPage) if no primary pages available
     4. if entry == nil:
          if PendingCount == 0 AND DownloadingCount == 0:
            set status = "complete", save queue, return
@@ -167,10 +168,14 @@ worker(ctx, entryType):
        - On fatal error: sets Status = Failed
     6. trackActivity(entry) — records in ring buffer for UI
     7. RecalcStats() — syncs queue stats with actual entry statuses
-    8. If page AND downloaded:
+    8. If page (EntryTypePage or EntryTypeExternalPage) AND downloaded:
          extractAndEnqueue(entry):
            a. Read ORIGINAL HTML from cache (not patched)
-           b. Extract URLs from original HTML
+           b. Create Extractor:
+              - Primary host pages: NewExtractor (FollowPages=true)
+                → extracts assets + same-host page links + external page links
+              - External host pages: NewExtractorAssetsOnly (FollowPages=false)
+                → extracts assets only (no page link following)
            c. For each URL:
               - FilterURL (skip if "", keep otherwise)
               - RewriteURL (get newURL + downloadURL)
@@ -315,17 +320,22 @@ Note: Entries span both the primary host and any CDN/external hosts. All are bun
 ├── hostname-YYYY-MM-DD.zim         # Built ZIM file
 ├── hostname-YYYY-MM-DD-2.zim       # Subsequent build (if file exists)
 │
-├── hostname.json                   # Download queue (atomic write via .tmp rename)
-├── hostname/                       # Filesystem cache mirroring URL paths
+├── hostname.json                   # Download queue for the entire scrape job
+│                                   # Contains all entries: primary host pages,
+│                                   # assets from any host, and external pages
+│
+├── hostname/                       # Primary host's filesystem cache
 │   ├── index.php%3Ftitle=...       # URL-encoded paths for filesystem safety
 │   ├── Main_Page.html              # MediaWiki-rewritten path
 │   ├── images/
 │   │   └── 0/02/file.pdf
 │   └── ...
 │
-├── cdn.example.com.json            # Spanned host queue (if cross-host assets)
-└── cdn.example.com/                # Spanned host cache
-    └── assets/logo.png
+├── cdn.example.com/                # Cross-host asset cache (within same queue)
+│   └── assets/logo.png
+│
+└── external-site.org/              # External page cache (within same queue)
+    └── article.html
 ```
 
 ---
@@ -353,3 +363,5 @@ Note: Entries span both the primary host and any CDN/external hosts. All are bun
 10. **No `C/` prefix in ZIM paths**: The namespace is a separate dirent field. Entry paths should NOT include the `C/` prefix.
 
 11. **Disk cache detection on Add()**: `queue.Add()` checks if a file already exists at `dataDir/entry.Path` before enqueuing as pending. If the file exists with content (>0 bytes), the entry is added as `downloaded` directly — bypassing the entire download pipeline. On resume/restart, this allows previously downloaded entries to be recognized and the queue to be reconstructed from the filesystem cache.
+
+12. **External page extraction is assets-only**: When an external page (different hostname from the primary scrape target) is downloaded, its assets (images, CSS, JS, etc.) are extracted via `NewExtractorAssetsOnly` (FollowPages=false). Its own page links are NOT followed — external pages are single-depth only. This preserves linked articles (e.g., from news sites or wiki references) without unbounded crawling. External `<a>` and `<iframe>` links from primary host pages are classified as `EntryTypeExternalPage` rather than being discarded.

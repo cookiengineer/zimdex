@@ -32,6 +32,7 @@ type Extractor struct {
 	baseURL     *url.URL
 	primaryHost string
 	referrer    string
+	FollowPages bool
 }
 
 func NewExtractor(pageURL, primaryHost, referrer string) (*Extractor, error) {
@@ -44,7 +45,17 @@ func NewExtractor(pageURL, primaryHost, referrer string) (*Extractor, error) {
 		baseURL:     u,
 		primaryHost: primaryHost,
 		referrer:    referrer,
+		FollowPages: true,
 	}, nil
+}
+
+func NewExtractorAssetsOnly(pageURL, primaryHost, referrer string) (*Extractor, error) {
+	ex, err := NewExtractor(pageURL, primaryHost, referrer)
+	if err != nil {
+		return nil, err
+	}
+	ex.FollowPages = false
+	return ex, nil
 }
 
 func (ex *Extractor) Extract(htmlBody []byte) []ExtractedURL {
@@ -169,18 +180,26 @@ func (ex *Extractor) extractElement(n *html.Node, urls *[]ExtractedURL) {
 
 		if download != "" || hasKnownFileExt(href) {
 			ex.addURL(href, EntryTypeAsset, urls)
-		} else {
+		} else if ex.FollowPages {
 			resolved := ex.resolve(href)
-			if resolved != nil && resolved.Hostname() == ex.primaryHost {
-				ex.addURL(href, EntryTypePage, urls)
+			if resolved != nil {
+				if resolved.Hostname() == ex.primaryHost {
+					ex.addURL(href, EntryTypePage, urls)
+				} else {
+					ex.addURL(href, EntryTypeExternalPage, urls)
+				}
 			}
 		}
 
 	case "iframe":
-		if src != "" {
+		if src != "" && ex.FollowPages {
 			resolved := ex.resolve(src)
-			if resolved != nil && resolved.Hostname() == ex.primaryHost {
-				ex.addURL(src, EntryTypePage, urls)
+			if resolved != nil {
+				if resolved.Hostname() == ex.primaryHost {
+					ex.addURL(src, EntryTypePage, urls)
+				} else {
+					ex.addURL(src, EntryTypeExternalPage, urls)
+				}
 			}
 		}
 	}
