@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZIMdex — Archive Management</title>
+<style>
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --text: #e0e0e0;
+  --text-secondary: #a0a0b0;
+  --accent: #0f3460;
+  --highlight: #e94560;
+  --border: #2a2a4a;
+  --success: #2ecc71;
+  --warn: #f39c12;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 1.5rem 2rem; background: var(--surface); border-bottom: 1px solid var(--border);
+}
+header h1 { font-size: 1.5rem; }
+header h1 a { color: var(--highlight); text-decoration: none; }
+header nav a { color: var(--text-secondary); text-decoration: none; margin-left: 1.5rem; font-size: 0.95rem; }
+header nav a:hover, header nav a.active { color: var(--highlight); }
+main { max-width: 900px; margin: 0 auto; padding: 2rem 1rem; }
+section { margin-bottom: 2.5rem; }
+section h2 { font-size: 1.2rem; color: var(--text-secondary); margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; }
+.card h3 { font-size: 1.05rem; margin-bottom: 0.5rem; }
+.card .meta { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem; }
+.badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-right: 0.5rem; }
+.badge-success { background: var(--success); color: #000; }
+.badge-warn { background: var(--warn); color: #000; }
+.badge-info { background: var(--accent); color: var(--text); }
+.badge-error { background: var(--highlight); color: #fff; }
+.btn { padding: 0.4rem 0.8rem; border: none; border-radius: 8px; font-size: 0.85rem; cursor: pointer; font-weight: 600; margin-right: 0.4rem; margin-bottom: 0.3rem; }
+.btn-primary { background: var(--highlight); color: #fff; }
+.btn-secondary { background: var(--accent); color: var(--text); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.form-group { margin-bottom: 1rem; }
+.form-group label { display: block; margin-bottom: 0.25rem; font-size: 0.9rem; color: var(--text-secondary); }
+.form-group input[type="text"], .form-group input[type="number"] { width: 100%; padding: 0.6rem 0.8rem; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.95rem; }
+.form-group input[type="checkbox"] { margin-right: 0.5rem; }
+.form-row { display: flex; gap: 1rem; }
+.form-row .form-group { flex: 1; }
+.progress-bar { height: 6px; background: var(--border); border-radius: 3px; margin: 0.75rem 0; overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
+.progress-fill.success { background: var(--success); }
+.progress-fill.warn { background: var(--warn); }
+.activity-log { max-height: 200px; overflow-y: auto; margin-top: 0.5rem; font-size: 0.8rem; font-family: monospace; }
+.activity-entry { padding: 0.2rem 0; border-bottom: 1px solid var(--border); display: flex; gap: 0.5rem; }
+.activity-time { color: var(--text-secondary); white-space: nowrap; }
+.activity-status { font-weight: 600; }
+.activity-status.fail { color: var(--highlight); }
+.activity-status.ok { color: var(--success); }
+.activity-url { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="/index.html">ZIMdex</a></h1>
+  <nav>
+    <a href="/index.html">Search</a>
+    <a href="/archive.html" class="active">Archive</a>
+  </nav>
+</header>
+<main>
+  <section id="new-archive">
+    <h2>New Archive</h2>
+    <div class="card">
+      <div class="form-group">
+        <label>Seed URL</label>
+        <input type="text" id="seed-url" placeholder="https://example.com/">
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Page Limit (0 = unlimited)</label><input type="number" id="page-limit" value="0" min="0"></div>
+        <div class="form-group"><label>Page Workers</label><input type="number" id="page-workers" value="2" min="1" max="16"></div>
+        <div class="form-group"><label>Asset Workers</label><input type="number" id="asset-workers" value="4" min="1" max="16"></div>
+      </div>
+      <div class="form-group"><label><input type="checkbox" id="respect-robots" checked> Respect robots.txt</label></div>
+      <div class="form-group"><label><input type="checkbox" id="insecure-ssl"> Ignore invalid SSL certificates</label></div>
+      <div class="form-group" id="filter-options">
+        <label style="margin-bottom:0.5rem;font-weight:600">Filters</label>
+        <div id="filter-checkboxes" style="color:var(--text-secondary);font-size:0.85rem">Loading...</div>
+      </div>
+      <button class="btn btn-primary" onclick="startArchive()">Start Scraping</button>
+    </div>
+  </section>
+
+  <section id="active-jobs" style="display:none">
+    <h2>Active Jobs</h2>
+    <div id="jobs-content"></div>
+  </section>
+
+  <section id="archives-list">
+    <h2>ZIM Archives</h2>
+    <div id="archives-content"><p style="color: var(--text-secondary);">Loading...</p></div>
+  </section>
+</main>
+<script>
+const activeJobs = {}
+
+async function fetchJSON(url, opts) {
+  const resp = await fetch(url, opts)
+  return resp.json()
+}
+
+async function loadFilters() {
+  try {
+    const data = await fetchJSON('/api/filters')
+    const container = document.getElementById('filter-checkboxes')
+    if (!data.filters || data.filters.length === 0) {
+      container.innerHTML = 'No filters available'
+      return
+    }
+    container.innerHTML = data.filters.map(f =>
+      '<label style="display:block;margin-bottom:0.2rem">' +
+      '<input type="checkbox" value="' + escapeHTML(f.name) + '"' + (f.name === 'tracking_params' ? ' checked' : '') + '> ' +
+      escapeHTML(f.description) +
+      '</label>'
+    ).join('')
+  } catch(e) {}
+}
+
+async function loadArchives() {
+  try {
+    const data = await fetchJSON('/api/archives')
+    const el = document.getElementById('archives-content')
+    if (!data.archives || data.archives.length === 0) {
+      el.innerHTML = '<p style="color: var(--text-secondary);">No ZIM archives found. Start a scrape above.</p>'
+      return
+    }
+    el.innerHTML = data.archives.map(a => `
+      <div class="card">
+        <h3>${escapeHTML(a.title || a.filename)}</h3>
+        <div class="meta">
+          ${a.date ? `Date: ${escapeHTML(a.date)} · ` : ''}
+          ${a.language ? `Lang: ${escapeHTML(a.language)} · ` : ''}
+          ${a.entry_count} entries · ${a.article_count} articles · ${a.media_count} media
+        </div>
+      </div>
+    `).join('')
+  } catch(e) {
+    document.getElementById('archives-content').innerHTML = '<p style="color: var(--warn);">Failed to load archives.</p>'
+  }
+}
+
+async function startArchive() {
+  const url = document.getElementById('seed-url').value.trim()
+  if (!url) { alert('Please enter a seed URL'); return }
+
+  const filterNames = []
+  document.querySelectorAll('#filter-checkboxes input:checked').forEach(cb => filterNames.push(cb.value))
+
+  try {
+    const body = JSON.stringify({
+      url: url,
+      respect_robots: document.getElementById('respect-robots').checked,
+      insecure_skip_verify: document.getElementById('insecure-ssl').checked,
+      page_limit: parseInt(document.getElementById('page-limit').value) || 0,
+      page_workers: parseInt(document.getElementById('page-workers').value) || 2,
+      asset_workers: parseInt(document.getElementById('asset-workers').value) || 4,
+      filter_names: filterNames
+    })
+    const data = await fetchJSON('/api/archive/start', { method: 'POST', body, headers: {'Content-Type': 'application/json'} })
+    if (data.host) {
+      activeJobs[data.host] = true
+      document.getElementById('active-jobs').style.display = 'block'
+      pollJobs()
+    } else {
+      alert('Error: ' + (data.error || 'unknown'))
+    }
+  } catch(e) {
+    alert('Failed: ' + e.message)
+  }
+}
+
+async function pollJobs() {
+  const hosts = Object.keys(activeJobs)
+  if (hosts.length === 0) return
+
+  const container = document.getElementById('jobs-content')
+  let html = ''
+
+  for (const host of hosts) {
+    try {
+      const data = await fetchJSON('/api/archive/' + host + '/status')
+
+      if (data.status === 'not_found' || data.status === 'stopped') {
+        delete activeJobs[host]
+        continue
+      }
+
+      const s = data.stats || {}
+      const total = s.pending + s.downloading + s.downloaded + s.failed + s.skipped
+      const done = s.downloaded + s.failed + s.skipped
+      const pct = total > 0 ? Math.round(done / total * 100) : 0
+
+      const statusBadge = data.status === 'running' ? '<span class="badge badge-success">running</span>'
+        : data.status === 'paused' ? '<span class="badge badge-warn">paused</span>'
+        : data.status === 'complete' ? '<span class="badge badge-info">complete</span>'
+        : '<span class="badge">' + data.status + '</span>'
+
+      html += '<div class="card">'
+        + '<h3>' + statusBadge + ' ' + escapeHTML(host) + ' <span style="font-weight:normal;font-size:0.85rem;color:var(--text-secondary)">' + pct + '%</span></h3>'
+        + '<div class="progress-bar"><div class="progress-fill ' + (data.status === 'complete' ? 'success' : 'warn') + '" style="width:' + pct + '%"></div></div>'
+        + '<div class="meta">'
+        + '<span style="color:var(--success)">' + s.downloaded + ' downloaded</span> · '
+        + '<span style="color:var(--warn)">' + s.failed + ' failed</span> · '
+        + s.pending + ' pending · ' + s.downloading + ' active · ' + s.skipped + ' skipped'
+        + '</div>'
+
+      const acts = data.recent_activity || []
+      if (acts.length > 0) {
+        html += '<div class="activity-log">'
+        for (const a of acts) {
+          const statusClass = a.status.includes('fail') || a.status.includes('error') || a.status.includes('404') || a.status.includes('500') ? 'fail' : 'ok'
+          html += '<div class="activity-entry">'
+            + '<span class="activity-time">' + escapeHTML(a.time) + '</span>'
+            + '<span class="activity-status ' + statusClass + '">' + escapeHTML(a.status) + '</span>'
+            + '<span class="activity-url">' + escapeHTML(a.url) + '</span>'
+            + '</div>'
+        }
+        html += '</div>'
+      }
+
+      html += '<button class="btn btn-secondary" onclick="pauseJob(\'' + host + '\')">Pause</button>'
+        + '<button class="btn btn-secondary" onclick="continueJob(\'' + host + '\')">Continue</button>'
+        + '<button class="btn btn-secondary" onclick="stopJob(\'' + host + '\')">Stop</button>'
+        + '<button class="btn btn-primary" onclick="buildJob(\'' + host + '\')">Build ZIM</button>'
+        + '</div>'
+
+      if (data.status === 'complete' || data.status === 'stopped') {
+        delete activeJobs[host]
+      }
+    } catch(e) {}
+  }
+
+  container.innerHTML = html
+  if (Object.keys(activeJobs).length === 0) {
+    document.getElementById('active-jobs').style.display = 'none'
+  }
+
+  setTimeout(pollJobs, 2000)
+}
+
+async function pauseJob(host) {
+  await fetchJSON('/api/archive/' + host + '/pause', { method: 'POST' })
+}
+async function continueJob(host) {
+  await fetchJSON('/api/archive/' + host + '/continue', { method: 'POST' })
+  activeJobs[host] = true
+  document.getElementById('active-jobs').style.display = 'block'
+  pollJobs()
+}
+async function stopJob(host) {
+  await fetchJSON('/api/archive/' + host + '/stop', { method: 'POST' })
+}
+async function buildJob(host) {
+  const data = await fetchJSON('/api/archive/' + host + '/build', { method: 'POST' })
+  if (data.zim_file) {
+    alert('ZIM built: ' + data.zim_file)
+    loadArchives()
+  } else {
+    alert('Build failed: ' + (data.error || 'unknown'))
+  }
+}
+
+function escapeHTML(str) {
+  if (!str) return ''
+  const div = document.createElement('div')
+  div.textContent = str
+  return div.innerHTML
+}
+
+loadArchives()
+loadFilters()
+</script>
+</body>
+</html>

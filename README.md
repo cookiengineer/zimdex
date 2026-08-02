@@ -1,61 +1,73 @@
+# ZIMdex
 
-# zimdex
+Offline web scraper and self-hosted search engine. Archives websites into [ZIM files](https://wiki.openzim.org/wiki/ZIM_file_format) and provides a local search interface over the archived content.
 
-Zimdex (`/ˈzɪm.dɛks/`) is an offline and self-hostable ZIM search engine that is built for in-Browser
-usage. It offers a bundled Web interface and can operate on multiple ZIM files and is meant to replace
-the `New Tab` page or to be integrated into the Browser URL bar as a Custom Search Engine.
+## Install
 
-### Warning: Experimental Software
-
-At this point Zimdex is very experimental, and the listed Features are not implemented yet.
-But this list is kind of the TODO list for now as the project progresses in development.
-
-
-### Features
-
-- [ ] Search with `site:domain.tld`
-- [ ] Search with `namespace:identifier`
-- [ ] Search with `keyword` to losely match Titles and URLs
-- [ ] Search with `+keyword` to require a keyword match
-
-- [ ] Bookmark search results (or `+1`) them so they appear on top for future queries
-
-- [ ] Show "Didn't find anything? Try these:" at the bottom of Results Page
-- [ ] Show "Search on DuckDuckGo" button
-- [ ] Show "Search on Bing" button
-- [ ] Show "Search on Google" button
-
-
-### Usage
-
-Start the zimdex binary on a specified port and you're ready to go. The program has to be executed
-within the folder that contains the ZIM files.
-
-```bash
-cd /home/zim;
-ls; # shows multiple zim files
-
-# start webserver on port 80
-zimdex --port=80;
+```sh
+git clone https://github.com/cookiengineer/zimdex
+cd zimdex
+CGO_ENABLED=0 go build -o zimdex .
 ```
 
+## Run
 
-### Browser Usage
+```sh
+./zimdex --folder=./data --port=3000
+```
 
-On your server:
+Open `http://localhost:3000` in your browser.
 
-- Start zimdex on a reachable port (defaulted port `80` is recommended)
+## Usage
 
-On your desktop machine:
+### Search
 
-- Use either the Hostname or IP of the server in the URL
-- Add a custom search engine in Firefox `about:preferences#search`
-- Set Search Engine Name to `zimdex`
-- Set URL to `http://server_hostname_or_ip:80/search?q=%s` (replace hostname and port accordingly)
-- Set Keyword to `@z` so you can use `@z example` to search in the URL bar
+The landing page (`/index.html`) searches across all ZIM files in the data folder. Type a query to see results with snippets and links to the archived content.
 
+### Archive a website
 
-### License
+1. Go to `http://localhost:3000/archive.html`
+2. Enter a seed URL (e.g., `https://buggedplanet.info/index.php?title=Main_Page`)
+3. Enable filters as needed (tracking params, MediaWiki cleanup, script removal)
+4. Check "Ignore invalid SSL certificates" if the site has a broken cert
+5. Click **Start Scraping**
+6. Monitor progress in the live activity feed
+7. When complete, click **Build ZIM**
+8. Search the archived content from the search page
 
-This project is licensed under the [AGPL 3.0](./LICENSE.txt) License.
+### Filter plugins
 
+Filters are selectable per-scrape in the archive UI:
+
+| Filter | Effect |
+|---|---|
+| Tracking params | Strips `utm_*`, `fbclid`, `gclid`, and 40+ other tracking parameters from URLs |
+| MediaWiki | Skips Talk/User/Special/Template pages; skips edit/history/delete actions; rewrites `?title=X` URLs to clean `X.html` paths |
+| Strip scripts | Removes `<script>` tags from HTML before archiving |
+
+### Browse archived content
+
+Click any search result to view the archived page. All links and assets are rewritten to load from the local ZIM file — no internet connection needed.
+
+## Data directory
+
+```
+data/
+├── example.com-2026-08-02.zim    # Built ZIM archives
+├── example.com.json              # Download queue (resumable)
+└── example.com/                  # Download cache
+    ├── index.html
+    ├── logo.png
+    └── style.css
+```
+
+## Browser integration
+
+Add ZIMdex as a custom search engine in Firefox:
+1. Right-click the address bar → **Add "ZIMdex"**
+2. Or Settings → Search → Add search engine:
+   - URL: `http://localhost:3000/api/search?q=%s`
+
+## License
+
+AGPL 3.0
