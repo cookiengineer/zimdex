@@ -216,25 +216,24 @@ func (d *Downloader) getThrottle(host string) *ThrottleState {
 
 func (d *Downloader) Download(ctx context.Context, entry *QueueEntry) error {
 	downloadURL := entry.URL
-	if entry.DownloadURL != "" {
+	if entry.DownloadURL != nil {
 		downloadURL = entry.DownloadURL
 	}
-
-	u, err := parseURL(downloadURL)
-	if err != nil {
+	if downloadURL == nil {
 		entry.Status = StatusFailed
-		entry.Error = fmt.Sprintf("invalid URL: %v", err)
-		return err
+		entry.Error = "no URL to download"
+		return fmt.Errorf("no URL to download")
 	}
 
-	host := u.Hostname()
+	downloadURLStr := downloadURL.String()
+	host := downloadURL.Hostname()
 	throttle := d.getThrottle(host)
 	throttle.Wait()
 
 	reqCtx, cancel := context.WithTimeout(ctx, d.timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(reqCtx, "GET", downloadURL, nil)
+	req, err := http.NewRequestWithContext(reqCtx, "GET", downloadURLStr, nil)
 	if err != nil {
 		entry.Status = StatusFailed
 		entry.Error = fmt.Sprintf("request error: %v", err)
@@ -270,7 +269,7 @@ func (d *Downloader) Download(ctx context.Context, entry *QueueEntry) error {
 			return err
 		}
 
-		entry.MimeType = DetectMimeType(resp.Header.Get("Content-Type"), entry.URL)
+		entry.MimeType = DetectMimeType(resp.Header.Get("Content-Type"), downloadURLStr)
 		entry.Size = int64(len(body))
 		entry.Status = StatusDownloaded
 		throttle.RecordSuccess()
@@ -284,10 +283,10 @@ func (d *Downloader) Download(ctx context.Context, entry *QueueEntry) error {
 			return fmt.Errorf("%s", entry.Error)
 		}
 
-		resolved, _ := resolveURL(entry.URL, location)
-		if resolved != "" && resolved != entry.URL {
+		resolved, _ := resolveURL(downloadURL, location)
+		if resolved != nil && resolved.String() != downloadURLStr {
 			entry.Status = StatusSkipped
-			return fmt.Errorf("%w: %s", ErrRedirect, resolved)
+			return fmt.Errorf("%w: %s", ErrRedirect, resolved.String())
 		}
 		return d.handleRetry(entry, fmt.Sprintf("HTTP %d", resp.StatusCode))
 
@@ -387,16 +386,12 @@ func parseURL(raw string) (*url.URL, error) {
 	return u, nil
 }
 
-func resolveURL(base, ref string) (string, error) {
-	baseURL, err := url.Parse(base)
-	if err != nil {
-		return "", err
-	}
+func resolveURL(base *url.URL, ref string) (*url.URL, error) {
 	refURL, err := url.Parse(ref)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return baseURL.ResolveReference(refURL).String(), nil
+	return base.ResolveReference(refURL), nil
 }
 
 func parseInt(s string) (int, error) {

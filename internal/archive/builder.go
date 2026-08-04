@@ -57,7 +57,7 @@ func BuildZIM(dataDir string, queue *Queue, filterNames []string) (string, error
 		}
 
 		pageURL := entry.URL
-		if entry.DownloadURL != "" {
+		if entry.DownloadURL != nil {
 			pageURL = entry.DownloadURL
 		}
 		data = filters.ApplyHTMLFilters(data, pageURL, activeFilters)
@@ -81,7 +81,11 @@ func BuildZIM(dataDir string, queue *Queue, filterNames []string) (string, error
 	w.AddMetadata("Creator", "ZIMdex")
 	w.AddMetadata("Date", date)
 	w.AddMetadata("Language", "eng")
-	w.AddMetadata("Source", queue.StartURL)
+	if queue.StartURL != nil {
+		w.AddMetadata("Source", queue.StartURL.String())
+	} else {
+		w.AddMetadata("Source", "")
+	}
 	w.AddMetadata("Description", fmt.Sprintf("Archived from %s on %s", queue.Host, date))
 
 	err = w.Finish()

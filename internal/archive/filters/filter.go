@@ -1,31 +1,33 @@
 package filters
 
+import "net/url"
+
 type Filter interface {
 	Name() string
 	Description() string
-	Detect(html []byte, pageURL string) bool
-	FilterURL(rawURL string) string
-	FilterHTML(html []byte, pageURL string) []byte
+	Detect(html []byte, pageURL *url.URL) bool
+	FilterURL(rawURL *url.URL) *url.URL
+	FilterHTML(html []byte, pageURL *url.URL) []byte
 }
 
 type URLRewriter interface {
-	RewriteURL(rawURL string) (newURL, downloadURL string)
+	RewriteURL(rawURL *url.URL) (newURL, downloadURL *url.URL)
 }
 
-func ApplyURLRewriter(rawURL string, filters []Filter) (newURL, downloadURL string) {
+func ApplyURLRewriter(rawURL *url.URL, filters []Filter) (newURL, downloadURL *url.URL) {
 	newURL = rawURL
 	for _, f := range filters {
 		if rw, ok := f.(URLRewriter); ok {
 			n, dl := rw.RewriteURL(rawURL)
-			if dl != "" {
+			if dl != nil {
 				downloadURL = dl
 			}
-			if n != "" && n != rawURL {
+			if n != nil && n != rawURL {
 				newURL = n
 			}
 		}
 	}
-	if downloadURL == "" {
+	if downloadURL == nil {
 		downloadURL = newURL
 	}
 	return
@@ -62,7 +64,7 @@ func AllNames() []string {
 	return names
 }
 
-func ApplyHTMLFilters(html []byte, pageURL string, filters []Filter) []byte {
+func ApplyHTMLFilters(html []byte, pageURL *url.URL, filters []Filter) []byte {
 	for _, f := range filters {
 		if f.Detect(html, pageURL) {
 			html = f.FilterHTML(html, pageURL)
@@ -71,12 +73,12 @@ func ApplyHTMLFilters(html []byte, pageURL string, filters []Filter) []byte {
 	return html
 }
 
-func ApplyURLFilters(rawURL string, html []byte, pageURL string, filters []Filter) string {
+func ApplyURLFilters(rawURL *url.URL, html []byte, pageURL *url.URL, filters []Filter) *url.URL {
 	for _, f := range filters {
 		if f.Detect(html, pageURL) {
 			filtered := f.FilterURL(rawURL)
-			if filtered == "" {
-				return ""
+			if filtered == nil {
+				return nil
 			}
 			if filtered != rawURL {
 				rawURL = filtered

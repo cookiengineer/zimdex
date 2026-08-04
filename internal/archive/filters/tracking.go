@@ -9,7 +9,7 @@ type TrackingFilter struct{}
 
 func (f *TrackingFilter) Name() string        { return "tracking_params" }
 func (f *TrackingFilter) Description() string { return "Strip tracking parameters (utm_*, fbclid, gclid, etc.)" }
-func (f *TrackingFilter) Detect(_ []byte, _ string) bool { return true }
+func (f *TrackingFilter) Detect(_ []byte, _ *url.URL) bool { return true }
 
 var trackingParams = map[string]bool{
 	"utm_source": true, "utm_medium": true, "utm_campaign": true,
@@ -28,15 +28,10 @@ var trackingParams = map[string]bool{
 	"wickedid": true, "yclid": true,
 }
 
-func FilterTrackingParams(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return rawURL
+func FilterTrackingParams(u *url.URL) {
+	if u == nil || u.RawQuery == "" {
+		return
 	}
-	if u.RawQuery == "" {
-		return rawURL
-	}
-
 	values := u.Query()
 	var removed bool
 	for key := range values {
@@ -45,18 +40,20 @@ func FilterTrackingParams(rawURL string) string {
 			removed = true
 		}
 	}
-	if !removed {
-		return rawURL
+	if removed {
+		u.RawQuery = values.Encode()
 	}
-
-	u.RawQuery = values.Encode()
-	return u.String()
 }
 
-func (f *TrackingFilter) FilterURL(rawURL string) string {
-	return FilterTrackingParams(rawURL)
+func (f *TrackingFilter) FilterURL(rawURL *url.URL) *url.URL {
+	if rawURL == nil {
+		return nil
+	}
+	clone := *rawURL
+	FilterTrackingParams(&clone)
+	return &clone
 }
 
-func (f *TrackingFilter) FilterHTML(html []byte, _ string) []byte {
+func (f *TrackingFilter) FilterHTML(html []byte, _ *url.URL) []byte {
 	return html
 }

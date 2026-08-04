@@ -2,12 +2,11 @@ package archive
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -15,25 +14,20 @@ import (
 )
 
 type Scraper struct {
-	Host              string
-	StartURL          string
-	DataDir           string
-	RespectRobots     bool
-	InsecureSkipVerify bool
-	PageLimit         int
-	PageWorkers       int
-	AssetWorkers      int
-	FilterNames       []string
+	Options ScraperOptions
+
+	Host     string
+	StartURL *url.URL
 
 	queue      *Queue
 	downloader *Downloader
 	robots     *RobotsMatcher
 
-	mu         sync.RWMutex
-	status     string
-	startedAt  time.Time
-	updatedAt  time.Time
-	logBuf     []string
+	mutex     sync.RWMutex
+	status    string
+	started_at time.Time
+	updated_at time.Time
+	log_buffer []string
 	activity   []ActivityEntry
 
 	ctx    context.Context
@@ -41,60 +35,64 @@ type Scraper struct {
 	wg     sync.WaitGroup
 }
 
-func NewScraper(dataDir, startURL string, respectRobots bool, insecureSkipVerify bool, pageLimit, pageWorkers, assetWorkers int, filterNames []string) (*Scraper, error) {
-	host, err := extractHost(startURL)
-	if err != nil {
-		return nil, fmt.Errorf("invalid start URL: %w", err)
+func NewScraper(options ScraperOptions) (*Scraper, error) {
+
+	if options.URL == nil {
+		return nil, fmt.Errorf("URL is required in ScraperOptions")
 	}
 
-	if pageWorkers <= 0 {
-		pageWorkers = 2
-	}
-	if assetWorkers <= 0 {
-		assetWorkers = 4
-	}
+	hostname := options.URL.Hostname()
+	starturl := options.URL
 
-	queuePath := filepath.Join(dataDir, host+".json")
-
-	s := &Scraper{
-		Host:               host,
-		StartURL:           startURL,
-		DataDir:            dataDir,
-		RespectRobots:      respectRobots,
-		InsecureSkipVerify: insecureSkipVerify,
-		PageLimit:          pageLimit,
-		PageWorkers:        pageWorkers,
-		AssetWorkers:       assetWorkers,
-		FilterNames:        filterNames,
-		status:             "idle",
+	if options.PageWorkers <= 0 {
+		options.PageWorkers = 2
 	}
 
-	s.queue = NewQueue(queuePath, host, startURL, respectRobots, pageLimit)
+	if options.AssetWorkers <= 0 {
+		options.AssetWorkers = 4
+	}
 
-	if _, err := os.Stat(queuePath); err == nil {
-		reset := s.queue.ResetStale()
-		if reset > 0 {
-			s.log("Reset %d failed/stale entries for retry", reset)
+	queue_path := filepath.Join(options.Folder, hostname+".json")
+
+	scraper := &Scraper{
+		Options:    options,
+		Host:       hostname,
+		StartURL:   starturl,
+		status:     "idle",
+		queue:      zimfs.NewQueue(queue_path, hostname, starturl, options.RespectRobots),
+		downloader: NewDownloader(options.Folder, options.IgnoreInsecureSSL),
+	}
+
+
+	if _, err_exists := os.Stat(queue_path); err_exists == nil {
+
+		count := scraper.queue.ResetStale()
+
+		if count > 0 {
+			scraper.log("Reset %d failed/stale entries for retry", count)
 		}
+
 	}
 
-	s.downloader = NewDownloader(dataDir, insecureSkipVerify)
 
-	seedFilters := filters.Enabled(s.FilterNames)
-	filterSeed := func(rawURL string) (newURL, downloadURL string) {
+	// TODO: Filters need to be reworked, this rewrites the path for SeedURL!?
+	seedFilters := filters.Enabled(options.Filters)
+	filterSeed := func(rawURL *url.URL) (newURL, downloadURL *url.URL) {
 		for _, f := range seedFilters {
 			if f.Detect(nil, rawURL) {
 				filtered := f.FilterURL(rawURL)
-				if filtered == "" {
-					return "", ""
+				if filtered == nil {
+					return nil, nil
 				}
 				rawURL = filtered
 			}
 		}
-		return applyPathRewrite(rawURL, "", seedFilters)
+		return applyPathRewrite(rawURL, nil, seedFilters)
 	}
 
-	if respectRobots {
+	// TODO: This should be Downloader.FetchRobots()
+	// TODO: This should be Downloader.FetchSitemap()
+	if options.RespectRobots == true {
 		matcher, sitemaps, delay, err := FetchRobotsTxt(host, s.downloader.client)
 		if err == nil {
 			s.robots = matcher
@@ -107,10 +105,10 @@ func NewScraper(dataDir, startURL string, respectRobots bool, insecureSkipVerify
 				seeds := FetchSitemaps(host, sitemaps, s.downloader.client)
 				for _, seedURL := range seeds {
 					newURL, downloadURL := filterSeed(seedURL)
-					if newURL != "" {
+					if newURL != nil {
 						_, localPath, zimPath := URLToPath(newURL)
 						e := QueueEntry{URL: newURL, Path: localPath, ZimPath: zimPath, EntryType: EntryTypePage, Status: StatusPending, Referrer: startURL}
-						if downloadURL != "" && downloadURL != newURL {
+						if downloadURL != nil && downloadURL != newURL {
 							e.DownloadURL = downloadURL
 						}
 						s.queue.Add(e)
@@ -123,10 +121,10 @@ func NewScraper(dataDir, startURL string, respectRobots bool, insecureSkipVerify
 		seeds := FetchDefaultSitemap(host, s.downloader.client)
 		for _, seedURL := range seeds {
 			newURL, downloadURL := filterSeed(seedURL)
-			if newURL != "" {
+			if newURL != nil {
 				_, localPath, zimPath := URLToPath(newURL)
 				e := QueueEntry{URL: newURL, Path: localPath, ZimPath: zimPath, EntryType: EntryTypePage, Status: StatusPending, Referrer: startURL}
-				if downloadURL != "" && downloadURL != newURL {
+				if downloadURL != nil && downloadURL != newURL {
 					e.DownloadURL = downloadURL
 				}
 				s.queue.Add(e)
@@ -139,10 +137,10 @@ func NewScraper(dataDir, startURL string, respectRobots bool, insecureSkipVerify
 
 	canonStart := CanonicalizeURL(startURL)
 	newURL, downloadURL := filterSeed(canonStart)
-	if newURL != "" {
+	if newURL != nil {
 		_, localPath, zimPath := URLToPath(newURL)
 		e := QueueEntry{URL: newURL, Path: localPath, ZimPath: zimPath, EntryType: EntryTypePage, Status: StatusPending}
-		if downloadURL != "" && downloadURL != newURL {
+		if downloadURL != nil && downloadURL != newURL {
 			e.DownloadURL = downloadURL
 		}
 		s.queue.Add(e)
@@ -162,14 +160,16 @@ func (s *Scraper) Start() {
 	s.queue.Status = "running"
 	s.queue.Save()
 
-	for i := 0; i < s.PageWorkers; i++ {
+	for i := 0; i < s.Options.PageWorkers; i++ {
 		s.wg.Add(1)
-		go s.worker(s.ctx, EntryTypePage)
+		worker := NewScraperWorker(s.ctx, EntryTypePage, s.queue, s, &s.wg)
+		go worker.Run()
 	}
 
-	for i := 0; i < s.AssetWorkers; i++ {
+	for i := 0; i < s.Options.AssetWorkers; i++ {
 		s.wg.Add(1)
-		go s.worker(s.ctx, EntryTypeAsset)
+		worker := NewScraperWorker(s.ctx, EntryTypeAsset, s.queue, s, &s.wg)
+		go worker.Run()
 	}
 }
 
@@ -192,6 +192,12 @@ func (s *Scraper) Continue() {
 	s.queue.Load()
 	s.Start()
 	s.log("Scraping continued")
+}
+
+func (s *Scraper) Status() string {
+	s.mu.RLock()
+	defer r.mu.RUnlock()
+	return s.status
 }
 
 func (s *Scraper) Stop() {
@@ -224,10 +230,10 @@ func (s *Scraper) Stats() QueueStats {
 }
 
 func (s *Scraper) BuildZIM() (string, error) {
-	return BuildZIM(s.DataDir, s.queue, s.FilterNames)
+	return BuildZIM(s.Options.Folder, s.queue, s.Options.Filters)
 }
 
-func (s *Scraper) RetryFailed(urls []string) int {
+func (s *Scraper) RetryFailed(urls []*url.URL) int {
 	if len(urls) == 0 {
 		failed := s.queue.FailedEntries()
 		for _, e := range failed {
@@ -240,8 +246,8 @@ func (s *Scraper) RetryFailed(urls []string) int {
 	}
 
 	count := 0
-	for _, rawURL := range urls {
-		s.queue.UpdateEntry(rawURL, func(e *QueueEntry) {
+	for _, u := range urls {
+		s.queue.UpdateEntry(u, func(e *QueueEntry) {
 			e.Status = StatusPending
 			e.RetryCount = 0
 			e.Error = ""
@@ -289,7 +295,10 @@ func (s *Scraper) trackActivity(entry *QueueEntry, httpCode int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	shortURL := entry.URL
+	shortURL := ""
+	if entry.URL != nil {
+		shortURL = entry.URL.String()
+	}
 	if len(shortURL) > 80 {
 		shortURL = shortURL[:80] + "..."
 	}
@@ -332,84 +341,12 @@ func (s *Scraper) RecentActivity() []ActivityEntry {
 	return result
 }
 
-func applyPathRewrite(filteredURL, pageURL string, activeFilters []filters.Filter) (newURL, downloadURL string) {
+func applyPathRewrite(filteredURL *url.URL, pageURL *url.URL, activeFilters []filters.Filter) (newURL, downloadURL *url.URL) {
 	return filters.ApplyURLRewriter(filteredURL, activeFilters)
 }
 
-func (s *Scraper) worker(ctx context.Context, entryType EntryType) {
-	defer s.wg.Done()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		s.mu.RLock()
-		if s.status != "running" {
-			s.mu.RUnlock()
-			return
-		}
-		s.mu.RUnlock()
-
-	entry := s.queue.PopPending(entryType)
-	if entry == nil && entryType == EntryTypePage {
-		entry = s.queue.PopPending(EntryTypeExternalPage)
-	}
-
-	if entry == nil {
-		remaining := s.queue.PendingCount()
-		active := s.queue.DownloadingCount()
-		if remaining == 0 && active == 0 {
-			s.mu.Lock()
-			if s.status == "running" {
-				s.status = "complete"
-			}
-			s.mu.Unlock()
-			s.queue.Status = "complete"
-			s.queue.Save()
-			s.log("Scraping complete")
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-		continue
-	}
-
-		err := s.downloader.Download(ctx, entry)
-
-		s.trackActivity(entry, 0)
-
-		if err != nil {
-			if errors.Is(err, ErrRedirect) {
-				redirectURL := extractRedirectURL(err)
-				if redirectURL != "" {
-					_, localPath, zimPath := URLToPath(redirectURL)
-					s.queue.AddIfNew(redirectURL, localPath, zimPath, entryType, entry.URL)
-				}
-			} else if errors.Is(err, ErrRetry) {
-				entry.Status = StatusPending
-			} else {
-				s.log("Failed: %s — %v", entry.URL, err)
-			}
-		}
-
-		s.queue.RecalcStats()
-
-		if entry.Status == StatusDownloaded && (entry.EntryType == EntryTypePage || entry.EntryType == EntryTypeExternalPage) {
-			if s.PageLimit > 0 && s.queue.DownloadedCount() >= s.PageLimit {
-				s.log("Page limit reached (%d)", s.PageLimit)
-			} else {
-				s.extractAndEnqueue(entry)
-			}
-		}
-
-		s.queue.Save()
-	}
-}
-
 func (s *Scraper) extractAndEnqueue(entry *QueueEntry) {
-	cachePath := filepath.Join(s.DataDir, entry.Path)
+	cachePath := filepath.Join(s.Options.Folder, entry.Path)
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
 		s.log("Read cache error: %s — %v", entry.Path, err)
@@ -417,11 +354,11 @@ func (s *Scraper) extractAndEnqueue(entry *QueueEntry) {
 	}
 
 	pageURL := entry.URL
-	if entry.DownloadURL != "" {
+	if entry.DownloadURL != nil {
 		pageURL = entry.DownloadURL
 	}
 
-	activeFilters := filters.Enabled(s.FilterNames)
+	activeFilters := filters.Enabled(s.Options.Filters)
 
 	ext, err := NewExtractor(pageURL, s.Host, pageURL)
 	if entry.EntryType == EntryTypeExternalPage {
@@ -435,48 +372,30 @@ func (s *Scraper) extractAndEnqueue(entry *QueueEntry) {
 
 	for _, u := range urls {
 		filtered := filters.ApplyURLFilters(u.URL, data, pageURL, activeFilters)
-		if filtered == "" {
+		if filtered == nil {
 			continue
 		}
 
-		if s.robots != nil && !s.robots.IsAllowed(filtered) {
+		if s.robots != nil && !s.robots.IsAllowed(filtered.Path) {
 			continue
 		}
 
 		newURL, downloadURL := applyPathRewrite(filtered, pageURL, activeFilters)
 		_, localPath, zimPath := URLToPath(newURL)
 
-		entry := QueueEntry{
-			URL:         newURL,
-			DownloadURL: downloadURL,
-			Path:        localPath,
-			ZimPath:     zimPath,
-			EntryType:   u.EntryType,
-			Status:      StatusPending,
-			Referrer:    pageURL,
+		newEntry := QueueEntry{
+			URL:       newURL,
+			Path:      localPath,
+			ZimPath:   zimPath,
+			EntryType: u.EntryType,
+			Status:    StatusPending,
+			Referrer:  pageURL,
 		}
-		if downloadURL != "" && downloadURL != newURL {
-			entry.DownloadURL = downloadURL
-		} else {
-			entry.DownloadURL = ""
+		if downloadURL != nil && downloadURL != newURL {
+			newEntry.DownloadURL = downloadURL
 		}
-		s.queue.Add(entry)
+		s.queue.Add(newEntry)
 	}
 }
 
-func extractHost(rawURL string) (string, error) {
-	u, err := parseURL(rawURL)
-	if err != nil {
-		return "", err
-	}
-	return u.Hostname(), nil
-}
 
-func extractRedirectURL(err error) string {
-	msg := err.Error()
-	const prefix = "redirect: "
-	if idx := strings.Index(msg, prefix); idx >= 0 {
-		return msg[idx+len(prefix):]
-	}
-	return ""
-}

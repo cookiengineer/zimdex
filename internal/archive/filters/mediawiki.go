@@ -14,7 +14,7 @@ type MediaWikiFilter struct{}
 func (f *MediaWikiFilter) Name() string        { return "mediawiki" }
 func (f *MediaWikiFilter) Description() string { return "Filter MediaWiki version control links and rewrite URLs to clean paths" }
 
-func (f *MediaWikiFilter) Detect(htmlBody []byte, pageURL string) bool {
+func (f *MediaWikiFilter) Detect(htmlBody []byte, pageURL *url.URL) bool {
 	if len(htmlBody) > 0 {
 		if bytes.Contains(htmlBody, []byte(`class="mediawiki"`)) {
 			return true
@@ -28,7 +28,10 @@ func (f *MediaWikiFilter) Detect(htmlBody []byte, pageURL string) bool {
 		}
 		return false
 	}
-	return strings.Contains(pageURL, "index.php?title=")
+	if pageURL != nil {
+		return strings.Contains(pageURL.String(), "index.php?title=")
+	}
+	return false
 }
 
 func findMetaGenerator(n *html.Node, keyword string) bool {
@@ -64,23 +67,22 @@ var mediaWikiSkipNamespaces = []string{
 	"Special:", "File:", "MediaWiki:", "Help:",
 }
 
-func (f *MediaWikiFilter) FilterURL(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return rawURL
+func (f *MediaWikiFilter) FilterURL(rawURL *url.URL) *url.URL {
+	if rawURL == nil {
+		return nil
 	}
 
-	q := u.Query()
+	q := rawURL.Query()
 	title := q.Get("title")
 	action := q.Get("action")
 
 	for _, ns := range mediaWikiSkipNamespaces {
 		if title != "" && strings.HasPrefix(title, ns) {
-			return ""
+			return nil
 		}
 	}
 	if mediaWikiSkipActions[action] {
-		return ""
+		return nil
 	}
 
 	changed := false
@@ -93,21 +95,23 @@ func (f *MediaWikiFilter) FilterURL(rawURL string) string {
 		changed = true
 	}
 	if changed {
-		u.RawQuery = q.Encode()
-		return u.String()
+		clone := *rawURL
+		clone.RawQuery = q.Encode()
+		return &clone
 	}
 
 	return rawURL
 }
 
-func (f *MediaWikiFilter) RewriteURL(rawURL string) (newURL, downloadURL string) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return rawURL, rawURL
+func (f *MediaWikiFilter) RewriteURL(rawURL *url.URL) (newURL, downloadURL *url.URL) {
+	if rawURL == nil {
+		return nil, nil
 	}
 
-	if strings.Contains(rawURL, "index.php?title=") {
-		q := u.Query()
+	rawStr := rawURL.String()
+
+	if strings.Contains(rawStr, "index.php?title=") {
+		q := rawURL.Query()
 		title := q.Get("title")
 		if title == "" {
 			return rawURL, rawURL
@@ -115,20 +119,20 @@ func (f *MediaWikiFilter) RewriteURL(rawURL string) (newURL, downloadURL string)
 
 		newPath := "/" + strings.ReplaceAll(title, " ", "_") + ".html"
 
-		newU := *u
+		newU := *rawURL
 		newU.RawQuery = ""
 		newU.Path = newPath
-		return newU.String(), rawURL
+		return &newU, rawURL
 	}
 
-	if strings.HasSuffix(u.Path, ".html") {
-		title := strings.TrimSuffix(strings.TrimPrefix(u.Path, "/"), ".html")
+	if strings.HasSuffix(rawURL.Path, ".html") {
+		title := strings.TrimSuffix(strings.TrimPrefix(rawURL.Path, "/"), ".html")
 		title = strings.ReplaceAll(title, "_", " ")
 
-		dlU := *u
+		dlU := *rawURL
 		dlU.Path = "/index.php"
 		dlU.RawQuery = "title=" + url.QueryEscape(title)
-		return rawURL, dlU.String()
+		return rawURL, &dlU
 	}
 
 	return rawURL, rawURL
@@ -142,7 +146,7 @@ var mwReturntoRegex = regexp.MustCompile(`(&amp;|&)returnto=\w+`)
 
 var mwLinkRegex = regexp.MustCompile(`(href|src)=["']/?index\.php\?title=([^"'\s&]+)(&amp;[^"'\s]*)?["']`)
 
-func (f *MediaWikiFilter) FilterHTML(htmlBody []byte, _ string) []byte {
+func (f *MediaWikiFilter) FilterHTML(htmlBody []byte, _ *url.URL) []byte {
 	result := mwOldidRegex.ReplaceAll(htmlBody, []byte{})
 	result = mwPrintableRegex.ReplaceAll(result, []byte{})
 	result = mwVeactionRegex.ReplaceAll(result, []byte{})

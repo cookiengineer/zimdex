@@ -104,37 +104,44 @@ func FetchRobotsTxt(hostname string, client *http.Client) (*RobotsMatcher, []str
 	return matcher, sitemaps, crawlDelay, nil
 }
 
-func FetchSitemaps(baseHost string, sitemapURLs []string, client *http.Client) []string {
+func FetchSitemaps(baseHost string, sitemapURLs []string, client *http.Client) []*url.URL {
 	seen := make(map[string]bool)
-	var seeds []string
+	var seeds []*url.URL
 
-	for _, url := range sitemapURLs {
-		fetchSitemap(url, baseHost, client, &seeds, seen, 0)
+	for _, s := range sitemapURLs {
+		u, err := url.Parse(s)
+		if err != nil {
+			continue
+		}
+		fetchSitemap(u, baseHost, client, &seeds, seen, 0)
 	}
 
 	return seeds
 }
 
-func FetchDefaultSitemap(hostname string, client *http.Client) []string {
-	defaultURL := fmt.Sprintf("https://%s/sitemap.xml", hostname)
-	var seeds []string
+func FetchDefaultSitemap(hostname string, client *http.Client) []*url.URL {
+	defaultURL, err := url.Parse(fmt.Sprintf("https://%s/sitemap.xml", hostname))
+	if err != nil {
+		return nil
+	}
+	var seeds []*url.URL
 	seen := make(map[string]bool)
 	fetchSitemap(defaultURL, hostname, client, &seeds, seen, 0)
 	return seeds
 }
 
-func fetchSitemap(sitemapURL, baseHost string, client *http.Client, seeds *[]string, seen map[string]bool, depth int) {
+func fetchSitemap(sitemapURL *url.URL, baseHost string, client *http.Client, seeds *[]*url.URL, seen map[string]bool, depth int) {
 	if depth > 3 {
 		return
 	}
 
-	canonical, err := normalizeSitemapURL(sitemapURL)
-	if err != nil || seen[canonical] {
+	canonical := normalizeSitemapURL(sitemapURL)
+	if seen[canonical] {
 		return
 	}
 	seen[canonical] = true
 
-	resp, err := client.Get(sitemapURL)
+	resp, err := client.Get(sitemapURL.String())
 	if err != nil {
 		return
 	}
@@ -156,14 +163,24 @@ func fetchSitemap(sitemapURL, baseHost string, client *http.Client, seeds *[]str
 		}
 	}
 
-	urls, isIndex := parseSitemapXML(string(data))
+	urlStrs, isIndex := parseSitemapXML(string(data))
 
 	if isIndex {
-		for _, u := range urls {
-			fetchSitemap(u, baseHost, client, seeds, seen, depth+1)
+		for _, u := range urlStrs {
+			parsed, err := url.Parse(u)
+			if err != nil {
+				continue
+			}
+			fetchSitemap(parsed, baseHost, client, seeds, seen, depth+1)
 		}
 	} else {
-		*seeds = append(*seeds, urls...)
+		for _, u := range urlStrs {
+			parsed, err := url.Parse(u)
+			if err != nil {
+				continue
+			}
+			*seeds = append(*seeds, parsed)
+		}
 	}
 }
 
@@ -217,12 +234,9 @@ func indexAfter(s, substr string, start int) int {
 	return start + idx + len(substr)
 }
 
-func normalizeSitemapURL(raw string) (string, error) {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "", err
-	}
-	u.Fragment = ""
-	u.RawFragment = ""
-	return u.String(), nil
+func normalizeSitemapURL(u *url.URL) string {
+	clone := *u
+	clone.Fragment = ""
+	clone.RawFragment = ""
+	return clone.String()
 }

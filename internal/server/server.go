@@ -46,11 +46,15 @@ type Server struct {
 
 func NewServer(manager *zimfs.Manager, port int) *Server {
 	archives := make(map[string]*zim.Archive)
+
 	for _, info := range manager.List() {
-		archive, ok := manager.Get(info.Filename)
-		if ok {
+
+		archive := manager.Get(info.Filename)
+
+		if archive != nil {
 			archives[info.Filename] = archive
 		}
+
 	}
 
 	s := &Server{
@@ -71,7 +75,7 @@ func (s *Server) registerRoutes() {
 		Searcher: s.searcher,
 		Scrapers: s.scrapers,
 		ScraperMu: &s.scraperMu,
-		DataDir:  s.manager.Dir,
+		DataDir:  s.manager.Folder,
 	}
 
 	s.mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {

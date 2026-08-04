@@ -31,18 +31,52 @@ const (
 )
 
 type QueueEntry struct {
-	URL          string      `json:"url"`
-	DownloadURL  string      `json:"download_url,omitempty"`
+	URL          *url.URL    `json:"-"`
+	DownloadURL  *url.URL    `json:"-"`
 	Path         string      `json:"path"`
 	ZimPath      string      `json:"zim_path"`
 	EntryType    EntryType   `json:"entry_type"`
 	MimeType     string      `json:"mime_type,omitempty"`
 	Status       QueueStatus `json:"status"`
 	Size         int64       `json:"size,omitempty"`
-	Referrer     string      `json:"referrer,omitempty"`
+	Referrer     *url.URL    `json:"-"`
 	DownloadedAt string      `json:"downloaded_at,omitempty"`
 	Error        string      `json:"error,omitempty"`
 	RetryCount   int         `json:"retry_count"`
+}
+
+func (e QueueEntry) MarshalJSON() ([]byte, error) {
+	type Alias QueueEntry
+	return json.Marshal(&struct {
+		URL         string `json:"url"`
+		DownloadURL string `json:"download_url,omitempty"`
+		Referrer    string `json:"referrer,omitempty"`
+		*Alias
+	}{
+		URL:         urlStr(e.URL),
+		DownloadURL: urlStr(e.DownloadURL),
+		Referrer:    urlStr(e.Referrer),
+		Alias:       (*Alias)(&e),
+	})
+}
+
+func (e *QueueEntry) UnmarshalJSON(data []byte) error {
+	type Alias QueueEntry
+	aux := &struct {
+		URL         string `json:"url"`
+		DownloadURL string `json:"download_url,omitempty"`
+		Referrer    string `json:"referrer,omitempty"`
+		*Alias
+	}{
+		Alias: (*Alias)(e),
+	}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	e.URL = parseURLStr(aux.URL)
+	e.DownloadURL = parseURLStr(aux.DownloadURL)
+	e.Referrer = parseURLStr(aux.Referrer)
+	return nil
 }
 
 type QueueStats struct {
@@ -54,15 +88,15 @@ type QueueStats struct {
 }
 
 type Queue struct {
-	Host         string       `json:"host"`
-	StartURL     string       `json:"start_url"`
-	RespectRobots bool        `json:"respect_robots"`
-	CreatedAt    string       `json:"created_at"`
-	UpdatedAt    string       `json:"updated_at"`
-	Status       string       `json:"status"`
-	PageLimit    int          `json:"page_limit"`
-	Stats        QueueStats   `json:"stats"`
-	Entries      []QueueEntry `json:"entries"`
+	Host          string       `json:"host"`
+	StartURL      *url.URL     `json:"-"`
+	RespectRobots bool         `json:"respect_robots"`
+	CreatedAt     string       `json:"created_at"`
+	UpdatedAt     string       `json:"updated_at"`
+	Status        string       `json:"status"`
+	PageLimit     int          `json:"page_limit"`
+	Stats         QueueStats   `json:"stats"`
+	Entries       []QueueEntry `json:"entries"`
 
 	filePath string
 	dataDir  string
@@ -70,7 +104,64 @@ type Queue struct {
 	urlIndex map[string]int
 }
 
-func NewQueue(filePath, host, startURL string, respectRobots bool, pageLimit int) *Queue {
+func (q *Queue) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct {
+		Host          string       `json:"host"`
+		StartURL      string       `json:"start_url"`
+		RespectRobots bool         `json:"respect_robots"`
+		CreatedAt     string       `json:"created_at"`
+		UpdatedAt     string       `json:"updated_at"`
+		Status        string       `json:"status"`
+		PageLimit     int          `json:"page_limit"`
+		Stats         QueueStats   `json:"stats"`
+		Entries       []QueueEntry `json:"entries"`
+	}{
+		Host:          q.Host,
+		StartURL:      urlStr(q.StartURL),
+		RespectRobots: q.RespectRobots,
+		CreatedAt:     q.CreatedAt,
+		UpdatedAt:     q.UpdatedAt,
+		Status:        q.Status,
+		PageLimit:     q.PageLimit,
+		Stats:         q.Stats,
+		Entries:       q.Entries,
+	})
+}
+
+func (q *Queue) UnmarshalJSON(data []byte) error {
+	type Alias Queue
+	aux := &struct {
+		StartURL string `json:"start_url"`
+		*Alias
+	}{
+		Alias: (*Alias)(q),
+	}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	q.StartURL = parseURLStr(aux.StartURL)
+	return nil
+}
+
+func urlStr(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	return u.String()
+}
+
+func parseURLStr(s string) *url.URL {
+	if s == "" {
+		return nil
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return nil
+	}
+	return u
+}
+
+func NewQueue(filePath string, host string, startURL *url.URL, respectRobots bool, pageLimit int) *Queue {
 	q := &Queue{
 		Host:          host,
 		StartURL:      startURL,
@@ -116,7 +207,7 @@ func (q *Queue) Load() {
 
 	q.urlIndex = make(map[string]int)
 	for i, e := range q.Entries {
-		q.urlIndex[CanonicalizeURL(e.URL)] = i
+		q.urlIndex[canonicalStr(e.URL)] = i
 	}
 	q.RecalcStats()
 }
@@ -143,7 +234,7 @@ func (q *Queue) Add(entry QueueEntry) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	canon := CanonicalizeURL(entry.URL)
+	canon := canonicalStr(entry.URL)
 	if _, exists := q.urlIndex[canon]; exists {
 		return false
 	}
@@ -166,8 +257,8 @@ func (q *Queue) Add(entry QueueEntry) bool {
 	return true
 }
 
-func (q *Queue) AddIfNew(rawURL, localPath, zimPath string, entryType EntryType, referrer string) bool {
-	canon := CanonicalizeURL(rawURL)
+func (q *Queue) AddIfNew(rawURL *url.URL, localPath, zimPath string, entryType EntryType, referrer *url.URL) bool {
+	canon := canonicalStr(rawURL)
 
 	q.mu.Lock()
 	if _, exists := q.urlIndex[canon]; exists {
@@ -177,7 +268,7 @@ func (q *Queue) AddIfNew(rawURL, localPath, zimPath string, entryType EntryType,
 	q.mu.Unlock()
 
 	return q.Add(QueueEntry{
-		URL:       canon,
+		URL:       CanonicalizeURL(rawURL),
 		Path:      localPath,
 		ZimPath:   zimPath,
 		EntryType: entryType,
@@ -186,12 +277,11 @@ func (q *Queue) AddIfNew(rawURL, localPath, zimPath string, entryType EntryType,
 	})
 }
 
-func (q *Queue) HasURL(rawURL string) bool {
+func (q *Queue) HasURL(u *url.URL) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	canon := CanonicalizeURL(rawURL)
-	_, exists := q.urlIndex[canon]
+	_, exists := q.urlIndex[canonicalStr(u)]
 	return exists
 }
 
@@ -224,11 +314,11 @@ func (q *Queue) PopPending(entryType EntryType) *QueueEntry {
 	return nil
 }
 
-func (q *Queue) UpdateEntry(rawURL string, updater func(*QueueEntry)) {
+func (q *Queue) UpdateEntry(u *url.URL, updater func(*QueueEntry)) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	canon := CanonicalizeURL(rawURL)
+	canon := canonicalStr(u)
 	idx, ok := q.urlIndex[canon]
 	if !ok {
 		return
@@ -330,51 +420,48 @@ func (q *Queue) ResetStale() int {
 	return count
 }
 
+func canonicalStr(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	return CanonicalizeURL(u).String()
+}
+
 func filterTrackingParams(u *url.URL) {
-	raw := u.String()
-	filtered := filters.FilterTrackingParams(raw)
-	if filtered != raw {
-		parsed, err := url.Parse(filtered)
-		if err == nil {
-			u.RawQuery = parsed.RawQuery
-		}
-	}
+	filters.FilterTrackingParams(u)
 }
 
-func CanonicalizeURL(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return rawURL
+func CanonicalizeURL(u *url.URL) *url.URL {
+	if u == nil {
+		return nil
 	}
 
-	if u.Fragment != "" {
-		u.Fragment = ""
-		u.RawFragment = ""
+	clone := *u
+	clone.Fragment = ""
+	clone.RawFragment = ""
+
+	filterTrackingParams(&clone)
+
+	clone.Scheme = strings.ToLower(clone.Scheme)
+	clone.Host = strings.ToLower(clone.Host)
+
+	if clone.Scheme == "https" && strings.HasSuffix(clone.Host, ":443") {
+		clone.Host = strings.TrimSuffix(clone.Host, ":443")
+	} else if clone.Scheme == "http" && strings.HasSuffix(clone.Host, ":80") {
+		clone.Host = strings.TrimSuffix(clone.Host, ":80")
 	}
 
-	filterTrackingParams(u)
-
-	u.Scheme = strings.ToLower(u.Scheme)
-	u.Host = strings.ToLower(u.Host)
-
-	if u.Scheme == "https" && strings.HasSuffix(u.Host, ":443") {
-		u.Host = strings.TrimSuffix(u.Host, ":443")
-	} else if u.Scheme == "http" && strings.HasSuffix(u.Host, ":80") {
-		u.Host = strings.TrimSuffix(u.Host, ":80")
+	if clone.Path == "" {
+		clone.Path = "/"
+	} else if len(clone.Path) > 1 && strings.HasSuffix(clone.Path, "/") {
+		clone.Path = strings.TrimSuffix(clone.Path, "/")
 	}
 
-	if u.Path == "" {
-		u.Path = "/"
-	} else if len(u.Path) > 1 && strings.HasSuffix(u.Path, "/") {
-		u.Path = strings.TrimSuffix(u.Path, "/")
-	}
-
-	return u.String()
+	return &clone
 }
 
-func URLToPath(rawURL string) (hostname, localPath, zimPath string) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
+func URLToPath(u *url.URL) (hostname, localPath, zimPath string) {
+	if u == nil {
 		return
 	}
 

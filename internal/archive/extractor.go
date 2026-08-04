@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
 )
 
 var cssURLRegex = regexp.MustCompile(`url\(\s*["']?(.*?)["']?\s*\)`)
@@ -24,32 +25,27 @@ var knownFileExts = map[string]bool{
 }
 
 type ExtractedURL struct {
-	URL       string
+	URL       *url.URL
 	EntryType EntryType
 }
 
 type Extractor struct {
 	baseURL     *url.URL
 	primaryHost string
-	referrer    string
+	referrer    *url.URL
 	FollowPages bool
 }
 
-func NewExtractor(pageURL, primaryHost, referrer string) (*Extractor, error) {
-	u, err := url.Parse(pageURL)
-	if err != nil {
-		return nil, err
-	}
-
+func NewExtractor(pageURL *url.URL, primaryHost string, referrer *url.URL) (*Extractor, error) {
 	return &Extractor{
-		baseURL:     u,
+		baseURL:     pageURL,
 		primaryHost: primaryHost,
 		referrer:    referrer,
 		FollowPages: true,
 	}, nil
 }
 
-func NewExtractorAssetsOnly(pageURL, primaryHost, referrer string) (*Extractor, error) {
+func NewExtractorAssetsOnly(pageURL *url.URL, primaryHost string, referrer *url.URL) (*Extractor, error) {
 	ex, err := NewExtractor(pageURL, primaryHost, referrer)
 	if err != nil {
 		return nil, err
@@ -73,7 +69,7 @@ func (ex *Extractor) walkNode(n *html.Node, urls *[]ExtractedURL) {
 	if n.Type == html.ElementNode {
 		ex.extractElement(n, urls)
 
-		if n.Data == "style" {
+		if n.Data == "style" || n.DataAtom == atom.Style {
 			text := ex.getTextContent(n)
 			if text != "" {
 				ex.extractCSSURLs(text, urls)
@@ -184,9 +180,9 @@ func (ex *Extractor) extractElement(n *html.Node, urls *[]ExtractedURL) {
 			resolved := ex.resolve(href)
 			if resolved != nil {
 				if resolved.Hostname() == ex.primaryHost {
-					ex.addURL(href, EntryTypePage, urls)
+					ex.addResolvedURL(resolved, EntryTypePage, urls)
 				} else {
-					ex.addURL(href, EntryTypeExternalPage, urls)
+					ex.addResolvedURL(resolved, EntryTypeExternalPage, urls)
 				}
 			}
 		}
@@ -196,9 +192,9 @@ func (ex *Extractor) extractElement(n *html.Node, urls *[]ExtractedURL) {
 			resolved := ex.resolve(src)
 			if resolved != nil {
 				if resolved.Hostname() == ex.primaryHost {
-					ex.addURL(src, EntryTypePage, urls)
+					ex.addResolvedURL(resolved, EntryTypePage, urls)
 				} else {
-					ex.addURL(src, EntryTypeExternalPage, urls)
+					ex.addResolvedURL(resolved, EntryTypeExternalPage, urls)
 				}
 			}
 		}
@@ -210,16 +206,20 @@ func (ex *Extractor) addURL(raw string, entryType EntryType, urls *[]ExtractedUR
 	if resolved == nil {
 		return
 	}
+	ex.addResolvedURL(resolved, entryType, urls)
+}
 
+func (ex *Extractor) addResolvedURL(resolved *url.URL, entryType EntryType, urls *[]ExtractedURL) {
 	if resolved.Scheme != "http" && resolved.Scheme != "https" {
 		return
 	}
 
-	resolved.Fragment = ""
-	resolved.RawFragment = ""
+	clone := *resolved
+	clone.Fragment = ""
+	clone.RawFragment = ""
 
 	*urls = append(*urls, ExtractedURL{
-		URL:       resolved.String(),
+		URL:       &clone,
 		EntryType: entryType,
 	})
 }

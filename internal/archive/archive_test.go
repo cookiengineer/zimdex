@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,15 +33,20 @@ func TestCanonicalizeURL(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		result := CanonicalizeURL(tt.input)
-		if result != tt.expected {
-			t.Errorf("CanonicalizeURL(%q) = %q, want %q", tt.input, result, tt.expected)
+		u, err := url.Parse(tt.input)
+		if err != nil {
+			t.Fatalf("url.Parse(%q): %v", tt.input, err)
+		}
+		result := CanonicalizeURL(u)
+		if result.String() != tt.expected {
+			t.Errorf("CanonicalizeURL(%q) = %q, want %q", tt.input, result.String(), tt.expected)
 		}
 	}
 }
 
 func TestURLToPath(t *testing.T) {
-	host, local, zim := URLToPath("https://en.wikipedia.org/wiki/Main_Page")
+	u, _ := url.Parse("https://en.wikipedia.org/wiki/Main_Page")
+	host, local, zim := URLToPath(u)
 
 	if host != "en.wikipedia.org" {
 		t.Errorf("host = %q, want en.wikipedia.org", host)
@@ -55,10 +61,12 @@ func TestURLToPath(t *testing.T) {
 
 func TestQueueAddAndDedup(t *testing.T) {
 	dir := t.TempDir()
-	q := NewQueue(filepath.Join(dir, "test.json"), "example.com", "https://example.com/", true, 0)
+	startURL, _ := url.Parse("https://example.com/")
+	q := NewQueue(filepath.Join(dir, "test.json"), "example.com", startURL, true, 0)
 
+	entryURL, _ := url.Parse("https://example.com/")
 	added := q.Add(QueueEntry{
-		URL:       "https://example.com/",
+		URL:       entryURL,
 		Path:      "example.com/index.html",
 		ZimPath:   "C/example.com/index.html",
 		EntryType: EntryTypePage,
@@ -69,7 +77,7 @@ func TestQueueAddAndDedup(t *testing.T) {
 	}
 
 	added = q.Add(QueueEntry{
-		URL:       "https://example.com/",
+		URL:       entryURL,
 		Path:      "example.com/index.html",
 		ZimPath:   "C/example.com/index.html",
 		EntryType: EntryTypePage,
@@ -82,14 +90,16 @@ func TestQueueAddAndDedup(t *testing.T) {
 
 func TestQueueAddIfNew(t *testing.T) {
 	dir := t.TempDir()
-	q := NewQueue(filepath.Join(dir, "test.json"), "example.com", "https://example.com/", true, 0)
+	startURL, _ := url.Parse("https://example.com/")
+	q := NewQueue(filepath.Join(dir, "test.json"), "example.com", startURL, true, 0)
 
-	ok := q.AddIfNew("https://example.com/page1", "example.com/page1", "C/example.com/page1", EntryTypePage, "")
+	pageURL, _ := url.Parse("https://example.com/page1")
+	ok := q.AddIfNew(pageURL, "example.com/page1", "C/example.com/page1", EntryTypePage, nil)
 	if !ok {
 		t.Error("expected AddIfNew to return true for new URL")
 	}
 
-	ok = q.AddIfNew("https://example.com/page1", "example.com/page1", "C/example.com/page1", EntryTypePage, "")
+	ok = q.AddIfNew(pageURL, "example.com/page1", "C/example.com/page1", EntryTypePage, nil)
 	if ok {
 		t.Error("expected AddIfNew to return false for duplicate URL")
 	}
@@ -97,17 +107,21 @@ func TestQueueAddIfNew(t *testing.T) {
 
 func TestQueuePopPending(t *testing.T) {
 	dir := t.TempDir()
-	q := NewQueue(filepath.Join(dir, "test.json"), "example.com", "https://example.com/", true, 0)
+	startURL, _ := url.Parse("https://example.com/")
+	q := NewQueue(filepath.Join(dir, "test.json"), "example.com", startURL, true, 0)
 
+	pageURL, _ := url.Parse("https://example.com/page")
 	q.Add(QueueEntry{
-		URL:       "https://example.com/page",
+		URL:       pageURL,
 		Path:      "example.com/page",
 		ZimPath:   "C/example.com/page",
 		EntryType: EntryTypePage,
 		Status:    StatusPending,
 	})
+
+	assetURL, _ := url.Parse("https://example.com/asset.css")
 	q.Add(QueueEntry{
-		URL:       "https://example.com/asset.css",
+		URL:       assetURL,
 		Path:      "example.com/asset.css",
 		ZimPath:   "C/example.com/asset.css",
 		EntryType: EntryTypeAsset,
@@ -121,7 +135,7 @@ func TestQueuePopPending(t *testing.T) {
 	if entry.Status != StatusDownloading {
 		t.Errorf("expected status downloading, got %q", entry.Status)
 	}
-	if entry.URL != "https://example.com/page" {
+	if entry.URL.String() != "https://example.com/page" {
 		t.Errorf("expected page URL, got %q", entry.URL)
 	}
 
@@ -138,11 +152,15 @@ func TestQueuePopPending(t *testing.T) {
 
 func TestQueueStats(t *testing.T) {
 	dir := t.TempDir()
-	q := NewQueue(filepath.Join(dir, "test.json"), "example.com", "https://example.com/", true, 0)
+	startURL, _ := url.Parse("https://example.com/")
+	q := NewQueue(filepath.Join(dir, "test.json"), "example.com", startURL, true, 0)
 
-	q.Add(QueueEntry{URL: "https://example.com/p1", EntryType: EntryTypePage, Status: StatusPending})
-	q.Add(QueueEntry{URL: "https://example.com/p2", EntryType: EntryTypePage, Status: StatusPending})
-	q.Add(QueueEntry{URL: "https://example.com/f1", EntryType: EntryTypeAsset, Status: StatusFailed})
+	p1, _ := url.Parse("https://example.com/p1")
+	p2, _ := url.Parse("https://example.com/p2")
+	f1, _ := url.Parse("https://example.com/f1")
+	q.Add(QueueEntry{URL: p1, EntryType: EntryTypePage, Status: StatusPending})
+	q.Add(QueueEntry{URL: p2, EntryType: EntryTypePage, Status: StatusPending})
+	q.Add(QueueEntry{URL: f1, EntryType: EntryTypeAsset, Status: StatusFailed})
 
 	if q.PendingCount() != 2 {
 		t.Errorf("expected 2 pending, got %d", q.PendingCount())
@@ -156,11 +174,13 @@ func TestQueueSaveLoad(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.json")
 
-	q := NewQueue(path, "example.com", "https://example.com/", true, 100)
-	q.Add(QueueEntry{URL: "https://example.com/page1", EntryType: EntryTypePage, Status: StatusDownloaded})
+	startURL, _ := url.Parse("https://example.com/")
+	q := NewQueue(path, "example.com", startURL, true, 100)
+	pageURL, _ := url.Parse("https://example.com/page1")
+	q.Add(QueueEntry{URL: pageURL, EntryType: EntryTypePage, Status: StatusDownloaded})
 	q.Save()
 
-	q2 := NewQueue(path, "example.com", "https://example.com/", true, 100)
+	q2 := NewQueue(path, "example.com", startURL, true, 100)
 	if q2.PageLimit != 100 {
 		t.Errorf("expected pageLimit 100, got %d", q2.PageLimit)
 	}
@@ -171,15 +191,16 @@ func TestQueueSaveLoad(t *testing.T) {
 
 func TestQueueConcurrent(t *testing.T) {
 	dir := t.TempDir()
-	q := NewQueue(filepath.Join(dir, "test.json"), "example.com", "https://example.com/", true, 0)
+	startURL, _ := url.Parse("https://example.com/")
+	q := NewQueue(filepath.Join(dir, "test.json"), "example.com", startURL, true, 0)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			url := fmt.Sprintf("https://example.com/page%d", n)
-			q.Add(QueueEntry{URL: url, EntryType: EntryTypePage, Status: StatusPending})
+			u, _ := url.Parse(fmt.Sprintf("https://example.com/page%d", n))
+			q.Add(QueueEntry{URL: u, EntryType: EntryTypePage, Status: StatusPending})
 		}(i)
 	}
 	wg.Wait()
@@ -221,7 +242,7 @@ func TestThrottleCrawlDelay(t *testing.T) {
 func TestDetectMimeType(t *testing.T) {
 	tests := []struct {
 		header   string
-		url      string
+		urlStr   string
 		expected string
 	}{
 		{"text/html; charset=utf-8", "", "text/html"},
@@ -233,9 +254,9 @@ func TestDetectMimeType(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		result := DetectMimeType(tt.header, tt.url)
+		result := DetectMimeType(tt.header, tt.urlStr)
 		if result != tt.expected {
-			t.Errorf("DetectMimeType(%q, %q) = %q, want %q", tt.header, tt.url, result, tt.expected)
+			t.Errorf("DetectMimeType(%q, %q) = %q, want %q", tt.header, tt.urlStr, result, tt.expected)
 		}
 	}
 }
@@ -261,8 +282,9 @@ func TestDownloader(t *testing.T) {
 	d := NewDownloader(dir, false)
 
 	t.Run("successful download", func(t *testing.T) {
+		entryURL, _ := url.Parse(ts.URL + "/ok")
 		entry := &QueueEntry{
-			URL:       ts.URL + "/ok",
+			URL:       entryURL,
 			Path:      "testhost/ok",
 			EntryType: EntryTypePage,
 			Status:    StatusPending,
@@ -288,8 +310,9 @@ func TestDownloader(t *testing.T) {
 	})
 
 	t.Run("retry on 500", func(t *testing.T) {
+		entryURL, _ := url.Parse(ts.URL + "/error")
 		entry := &QueueEntry{
-			URL:       ts.URL + "/error",
+			URL:       entryURL,
 			Path:      "testhost/error",
 			EntryType: EntryTypePage,
 			Status:    StatusPending,
@@ -313,7 +336,8 @@ func TestExtractor(t *testing.T) {
 <style>body { background: url(/images/bg.png); }</style>
 </body></html>`
 
-	ext, err := NewExtractor("https://example.com/page", "example.com", "https://example.com/page")
+	pageURL, _ := url.Parse("https://example.com/page")
+	ext, err := NewExtractor(pageURL, "example.com", pageURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,11 +346,11 @@ func TestExtractor(t *testing.T) {
 
 	found := make(map[string]EntryType)
 	for _, u := range urls {
-		found[u.URL] = u.EntryType
+		found[u.URL.String()] = u.EntryType
 	}
 
 	tests := []struct {
-		url       string
+		urlStr    string
 		entryType EntryType
 	}{
 		{"https://example.com/style.css", EntryTypeAsset},
@@ -342,13 +366,13 @@ func TestExtractor(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		et, ok := found[tt.url]
+		et, ok := found[tt.urlStr]
 		if !ok {
-			t.Errorf("expected URL %q, not found", tt.url)
+			t.Errorf("expected URL %q, not found", tt.urlStr)
 			continue
 		}
 		if et != tt.entryType {
-			t.Errorf("URL %q: expected %s, got %s", tt.url, tt.entryType, et)
+			t.Errorf("URL %q: expected %s, got %s", tt.urlStr, tt.entryType, et)
 		}
 	}
 
@@ -439,7 +463,17 @@ func TestScraperNew(t *testing.T) {
 	defer ts.Close()
 
 	dir := t.TempDir()
-	s, err := NewScraper(dir, ts.URL+"/", false, false, 0, 1, 1, nil)
+	u, _ := url.Parse(ts.URL + "/")
+	s, err := NewScraper(ScraperOptions{
+		Folder:            dir,
+		URL:               u,
+		RespectRobots:     false,
+		IgnoreInsecureSSL: false,
+		PageWorkers:       1,
+		AssetWorkers:      1,
+		Filters:           nil,
+		PageLimit:         0,
+	})
 	if err != nil {
 		t.Fatalf("NewScraper: %v", err)
 	}
@@ -467,7 +501,17 @@ func TestScraperStartStop(t *testing.T) {
 	defer ts.Close()
 
 	dir := t.TempDir()
-	s, err := NewScraper(dir, ts.URL+"/", false, false, 5, 1, 1, nil)
+	u, _ := url.Parse(ts.URL + "/")
+	s, err := NewScraper(ScraperOptions{
+		Folder:            dir,
+		URL:               u,
+		RespectRobots:     false,
+		IgnoreInsecureSSL: false,
+		PageWorkers:       1,
+		AssetWorkers:      1,
+		Filters:           nil,
+		PageLimit:         5,
+	})
 	if err != nil {
 		t.Fatalf("NewScraper: %v", err)
 	}
@@ -495,7 +539,17 @@ func TestScraperExtractAndEnqueue(t *testing.T) {
 	defer ts.Close()
 
 	dir := t.TempDir()
-	s, err := NewScraper(dir, ts.URL+"/", false, false, 10, 1, 2, nil)
+	u, _ := url.Parse(ts.URL + "/")
+	s, err := NewScraper(ScraperOptions{
+		Folder:            dir,
+		URL:               u,
+		RespectRobots:     false,
+		IgnoreInsecureSSL: false,
+		PageWorkers:       1,
+		AssetWorkers:      2,
+		Filters:           nil,
+		PageLimit:         10,
+	})
 	if err != nil {
 		t.Fatalf("NewScraper: %v", err)
 	}
@@ -528,7 +582,17 @@ func TestBuildZIM(t *testing.T) {
 	defer ts.Close()
 
 	dir := t.TempDir()
-	s, err := NewScraper(dir, ts.URL+"/", false, false, 10, 1, 2, nil)
+	u, _ := url.Parse(ts.URL + "/")
+	s, err := NewScraper(ScraperOptions{
+		Folder:            dir,
+		URL:               u,
+		RespectRobots:     false,
+		IgnoreInsecureSSL: false,
+		PageWorkers:       1,
+		AssetWorkers:      2,
+		Filters:           nil,
+		PageLimit:         10,
+	})
 	if err != nil {
 		t.Fatalf("NewScraper: %v", err)
 	}
@@ -586,7 +650,17 @@ func TestCrossHostAssets(t *testing.T) {
 	defer main.Close()
 
 	dir := t.TempDir()
-	s, err := NewScraper(dir, main.URL+"/", false, false, 10, 1, 2, nil)
+	u, _ := url.Parse(main.URL + "/")
+	s, err := NewScraper(ScraperOptions{
+		Folder:            dir,
+		URL:               u,
+		RespectRobots:     false,
+		IgnoreInsecureSSL: false,
+		PageWorkers:       1,
+		AssetWorkers:      2,
+		Filters:           nil,
+		PageLimit:         10,
+	})
 	if err != nil {
 		t.Fatalf("NewScraper: %v", err)
 	}
@@ -639,7 +713,8 @@ func TestExtractorMediaElements(t *testing.T) {
 </audio>
 </body></html>`
 
-	ext, err := NewExtractor("https://example.com/page", "example.com", "https://example.com/page")
+	pageURL, _ := url.Parse("https://example.com/page")
+	ext, err := NewExtractor(pageURL, "example.com", pageURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -648,7 +723,7 @@ func TestExtractorMediaElements(t *testing.T) {
 
 	found := make(map[string]bool)
 	for _, u := range urls {
-		found[u.URL] = true
+		found[u.URL.String()] = true
 	}
 
 	tests := []string{

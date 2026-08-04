@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -109,7 +110,8 @@ func (h *Handlers) handleSearch(w http.ResponseWriter, r *http.Request) {
 	results := make([]map[string]interface{}, 0)
 
 	for _, r := range resultSet.Results() {
-		zimFile := h.findZimFile(r.Path)
+
+		zimFile := h.Manager.Which(r.Path)
 
 		renderPath := r.Path
 		if strings.HasPrefix(renderPath, "C/") {
@@ -189,19 +191,6 @@ func (h *Handlers) handleSuggest(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handlers) findZimFile(zimPath string) string {
-	for _, info := range h.Manager.List() {
-		archive, ok := h.Manager.Get(info.Filename)
-		if !ok {
-			continue
-		}
-		if archive.HasEntry(zimPath) {
-			return info.Filename
-		}
-	}
-	return ""
-}
-
 func (h *Handlers) handleRender(w http.ResponseWriter, r *http.Request) {
 	zimFile := r.PathValue("zimfile")
 	remainder := r.PathValue("remainder")
@@ -215,8 +204,8 @@ func (h *Handlers) handleRender(w http.ResponseWriter, r *http.Request) {
 		remainder = remainder + "?" + r.URL.RawQuery
 	}
 
-	archive, ok := h.Manager.Get(zimFile)
-	if !ok {
+	archive := h.Manager.Get(zimFile)
+	if archive == nil {
 		http.Error(w, "ZIM file not found", http.StatusNotFound)
 		return
 	}
@@ -238,13 +227,13 @@ func (h *Handlers) handleRender(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) handleArchiveStart(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		URL                 string   `json:"url"`
-		RespectRobots       *bool    `json:"respect_robots"`
-		InsecureSkipVerify  bool     `json:"insecure_skip_verify"`
-		PageLimit           int      `json:"page_limit"`
-		PageWorkers         int      `json:"page_workers"`
-		AssetWorkers        int      `json:"asset_workers"`
-		FilterNames         []string `json:"filter_names"`
+		URL                string   `json:"url"`
+		RespectRobots      *bool    `json:"respect_robots"`
+		InsecureSkipVerify bool     `json:"insecure_skip_verify"`
+		PageLimit          int      `json:"page_limit"`
+		PageWorkers        int      `json:"page_workers"`
+		AssetWorkers       int      `json:"asset_workers"`
+		FilterNames        []string `json:"filter_names"`
 	}
 
 	data, _ := io.ReadAll(r.Body)
@@ -267,7 +256,26 @@ func (h *Handlers) handleArchiveStart(w http.ResponseWriter, r *http.Request) {
 		body.AssetWorkers = 4
 	}
 
-	scraper, err := archive.NewScraper(h.DataDir, body.URL, respectRobots, body.InsecureSkipVerify, body.PageLimit, body.PageWorkers, body.AssetWorkers, body.FilterNames)
+	parsedURL, err := url.Parse(body.URL)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "invalid URL: " + err.Error(),
+		})
+		return
+	}
+
+	scraper, err := archive.NewScraper(archive.ScraperOptions{
+		Folder:            h.DataDir,
+		URL:               parsedURL,
+		RespectRobots:     respectRobots,
+		IgnoreInsecureSSL: body.InsecureSkipVerify,
+		PageWorkers:       body.PageWorkers,
+		AssetWorkers:      body.AssetWorkers,
+		Filters:           body.FilterNames,
+		PageLimit:         body.PageLimit,
+	})
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -297,9 +305,9 @@ func (h *Handlers) handleArchiveStart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"host":        host,
-		"status":      "running",
-		"start_url":   body.URL,
+		"host":      host,
+		"status":    "running",
+		"start_url": body.URL,
 	})
 }
 
@@ -321,10 +329,14 @@ func (h *Handlers) handleArchiveStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stats := scraper.Stats()
+	startURL := ""
+	if scraper.StartURL != nil {
+		startURL = scraper.StartURL.String()
+	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"host":           host,
-		"status":         scraper.Status(),
-		"start_url":      scraper.StartURL,
+		"host":      host,
+		"status":    scraper.Status(),
+		"start_url": startURL,
 		"stats": map[string]interface{}{
 			"pending":     stats.Pending,
 			"downloading": stats.Downloading,
@@ -506,7 +518,15 @@ func (h *Handlers) handleArchiveRetry(w http.ResponseWriter, r *http.Request) {
 	data, _ := io.ReadAll(r.Body)
 	json.Unmarshal(data, &body)
 
-	count := scraper.RetryFailed(body.URLs)
+	var parsedURLs []*url.URL
+	for _, u := range body.URLs {
+		parsed, err := url.Parse(u)
+		if err == nil {
+			parsedURLs = append(parsedURLs, parsed)
+		}
+	}
+
+	count := scraper.RetryFailed(parsedURLs)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"host":    host,
 		"retried": count,
