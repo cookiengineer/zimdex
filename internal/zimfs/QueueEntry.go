@@ -7,16 +7,16 @@ import (
 )
 
 type QueueEntry struct {
-	WebURL       *url.URL    `json:"-"` // via Alias
-	ZimURL       *url.URL    `json:"-"` // via Alias
-	MimeType     string      `json:"mime_type"`
-	QueueType    QueueType   `json:"queue_type"`
-	QueueStatus  QueueStatus `json:"queue_status"`
-	Size         int64       `json:"size,omitempty"`
-	Referrer     *url.URL    `json:"-"` // via Alias
-	LastModified time.Time   `json:"-"` // via Alias
-	StatusCode   int         `json:"status_code"`
-	Retries      int         `json:"retries"`
+	WebURL       *url.URL         `json:"-"` // via Alias
+	ZimURL       *url.URL         `json:"-"` // via Alias
+	MimeType     string           `json:"mime_type"`
+	Type         QueueEntryType   `json:"type"`
+	Status       QueueEntryStatus `json:"status"`
+	Size         int64            `json:"size,omitempty"`
+	Referrer     *url.URL         `json:"-"` // via Alias
+	LastModified time.Time        `json:"-"` // via Alias
+	StatusCode   int              `json:"status_code"`
+	Retries      int              `json:"retries"`
 }
 
 func (entry QueueEntry) MarshalJSON() ([]byte, error) {
