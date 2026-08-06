@@ -2,8 +2,12 @@ package zimfs
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/url"
+	"path/filepath"
+	"strings"
 	"time"
+	"github.com/cookiengineer/zimdex/internal/utils"
 )
 
 type QueueEntry struct {
@@ -17,6 +21,54 @@ type QueueEntry struct {
 	LastModified time.Time        `json:"-"` // via Alias
 	StatusCode   int              `json:"status_code"`
 	Retries      int              `json:"retries"`
+}
+
+func NewQueueEntry(web_url *url.URL, zim_url *url.URL, typ QueueEntryType, referrer *url.URL) *QueueEntry {
+
+	entry := QueueEntry{
+		WebURL:       utils.CanonicalizeURL(web_url),
+		ZimURL:       zim_url,
+		MimeType:     utils.GetMimeType(web_url),
+		Type:         typ,
+		Status:       QueueEntryStatusPending,
+		Size:         0,
+		Referrer:     referrer,
+		LastModified: time.Time{},
+		StatusCode:   0,
+		Retries:      0,
+	}
+
+	return &entry
+
+}
+
+func (entry *QueueEntry) Path() (string) {
+
+	if entry.WebURL != nil {
+
+		hostname := entry.WebURL.Hostname()
+		path     := entry.WebURL.Path
+
+		if path == "" || path == "/" {
+			path = "/index.html"
+		} else if strings.HasSuffix(path, "/") {
+			path = fmt.Sprintf("%sindex.html", path)
+		}
+
+		if entry.WebURL.RawQuery != "" {
+			path = fmt.Sprintf("%s?%s", path, entry.WebURL.RawQuery)
+		}
+
+		safe_path := path
+		safe_path  = strings.ReplaceAll(safe_path, "?", "%3F")
+		safe_path  = strings.ReplaceAll(safe_path, "&", "%26")
+
+		return filepath.Join(hostname, filepath.FromSlash(strings.TrimPrefix(safe_path, "/")))
+
+	} else {
+		return ""
+	}
+
 }
 
 func (entry QueueEntry) MarshalJSON() ([]byte, error) {
