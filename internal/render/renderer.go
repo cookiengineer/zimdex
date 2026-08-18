@@ -7,32 +7,33 @@ import (
 	"strings"
 
 	"github.com/cookiengineer/gozim/archive/zim"
+	"github.com/cookiengineer/zimdex/internal/filters"
 	"golang.org/x/net/html"
 )
 
 const maxRedirectHops = 5
 
 var extMimeMap = map[string]string{
-	".css":  "text/css",
-	".js":   "application/javascript",
-	".mjs":  "application/javascript",
-	".html": "text/html",
-	".htm":  "text/html",
-	".svg":  "image/svg+xml",
-	".png":  "image/png",
-	".jpg":  "image/jpeg",
-	".jpeg": "image/jpeg",
-	".gif":  "image/gif",
-	".webp": "image/webp",
-	".ico":  "image/x-icon",
+	".css":   "text/css",
+	".js":    "application/javascript",
+	".mjs":   "application/javascript",
+	".html":  "text/html",
+	".htm":   "text/html",
+	".svg":   "image/svg+xml",
+	".png":   "image/png",
+	".jpg":   "image/jpeg",
+	".jpeg":  "image/jpeg",
+	".gif":   "image/gif",
+	".webp":  "image/webp",
+	".ico":   "image/x-icon",
 	".woff":  "font/woff",
 	".woff2": "font/woff2",
-	".ttf":  "font/ttf",
-	".eot":  "application/vnd.ms-fontobject",
-	".json": "application/json",
-	".xml":  "application/xml",
-	".txt":  "text/plain",
-	".pdf":  "application/pdf",
+	".ttf":   "font/ttf",
+	".eot":   "application/vnd.ms-fontobject",
+	".json":  "application/json",
+	".xml":   "application/xml",
+	".txt":   "text/plain",
+	".pdf":   "application/pdf",
 }
 
 func correctMimeType(mime string, path string) string {
@@ -49,7 +50,7 @@ func correctMimeType(mime string, path string) string {
 	return "application/octet-stream"
 }
 
-func Render(archive *zim.Archive, zimFile string, renderPath string, filters FilterConfig) ([]byte, string, error) {
+func Render(archive *zim.Archive, zimFile string, renderPath string) ([]byte, string, error) {
 	entry, err := resolveEntry(archive, renderPath)
 	if err != nil {
 		return nil, "", err
@@ -80,7 +81,7 @@ func Render(archive *zim.Archive, zimFile string, renderPath string, filters Fil
 	}
 
 	if strings.HasPrefix(mimeType, "text/html") {
-		return renderHTML(data, rewriter, filters)
+		return renderHTML(data, rewriter)
 	}
 
 	if strings.HasPrefix(mimeType, "text/css") {
@@ -170,13 +171,17 @@ func entryPageURL(entry *zim.Entry, renderPath string) string {
 	return "https://" + renderPath
 }
 
-func renderHTML(data []byte, rewriter *Rewriter, filters FilterConfig) ([]byte, string, error) {
+func renderHTML(data []byte, rewriter *Rewriter) ([]byte, string, error) {
+	sanitizers := []filters.Filter{
+		&filters.Scripts{},
+		&filters.Trackers{},
+	}
+	data = filters.ApplyFilterHTML(sanitizers, rewriter.PageURL, data)
+
 	doc, err := html.Parse(bytes.NewReader(data))
 	if err != nil {
 		return data, "text/html; charset=utf-8", nil
 	}
-
-	ApplyFilters(doc, filters)
 
 	RewriteHTML(doc, rewriter)
 

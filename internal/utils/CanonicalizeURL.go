@@ -14,7 +14,7 @@ func CanonicalizeURL(url *net_url.URL) *net_url.URL {
 		clone.Fragment = ""
 		clone.RawFragment = ""
 
-		filters.FilterTrackingParameters(&clone)
+		filters.FilterTrackers(&clone)
 
 		clone.Scheme = strings.ToLower(clone.Scheme)
 		clone.Host = strings.ToLower(clone.Host)

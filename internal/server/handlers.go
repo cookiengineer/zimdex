@@ -210,7 +210,7 @@ func (h *Handlers) handleRender(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, mimeType, err := render.Render(archive, zimFile, remainder, render.DefaultFilters)
+	data, mimeType, err := render.Render(archive, zimFile, remainder)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			http.Error(w, err.Error(), http.StatusNotFound)
