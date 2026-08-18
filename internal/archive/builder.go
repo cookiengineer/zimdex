@@ -9,24 +9,26 @@ import (
 
 	"github.com/cookiengineer/gozim/archive/zim"
 	"github.com/cookiengineer/zimdex/internal/archive/filters"
+	"github.com/cookiengineer/zimdex/internal/zimfs"
 	"golang.org/x/net/html"
 )
 
-func BuildZIM(dataDir string, queue *Queue, filterNames []string) (string, error) {
-	downloaded := queue.GetByStatus(StatusDownloaded)
+func BuildZIM(dataDir string, queue *zimfs.Queue, filterNames []string) (string, error) {
+	downloaded := queue.Query(zimfs.QueueEntryStatusDownloaded)
 	if len(downloaded) == 0 {
 		return "", fmt.Errorf("no downloaded entries to build")
 	}
 
 	activeFilters := filters.Enabled(filterNames)
 
+	host := queueHost(queue)
 	date := time.Now().Format("2006-01-02")
-	filename := fmt.Sprintf("%s-%s.zim", queue.Host, date)
+	filename := fmt.Sprintf("%s-%s.zim", host, date)
 	outputPath := filepath.Join(dataDir, filename)
 
 	if _, err := os.Stat(outputPath); err == nil {
 		for i := 2; ; i++ {
-			alt := fmt.Sprintf("%s-%s-%d.zim", queue.Host, date, i)
+			alt := fmt.Sprintf("%s-%s-%d.zim", host, date, i)
 			if _, err := os.Stat(filepath.Join(dataDir, alt)); err != nil {
 				filename = alt
 				outputPath = filepath.Join(dataDir, alt)
@@ -38,40 +40,37 @@ func BuildZIM(dataDir string, queue *Queue, filterNames []string) (string, error
 	w := zim.NewWriter()
 	w.SetCompression(zim.CompressionZstd)
 	w.SetIndexing(true, "eng")
-	w.SetMainPath(downloaded[0].ZimPath)
+	w.SetMainPath(downloaded[0].Path())
 
 	err := w.Create(outputPath)
 	if err != nil {
 		return "", fmt.Errorf("creating ZIM file: %w", err)
 	}
 
-	title := queue.Host
+	title := host
 	mainTitle := ""
-	added := 0
 
-	for _, entry := range downloaded {
-		cachePath := filepath.Join(dataDir, entry.Path)
+	for i := range downloaded {
+		entry := &downloaded[i]
+
+		cachePath := filepath.Join(dataDir, entry.Path())
 		data, err := os.ReadFile(cachePath)
 		if err != nil {
 			continue
 		}
 
-		pageURL := entry.URL
-		if entry.DownloadURL != nil {
-			pageURL = entry.DownloadURL
-		}
+		pageURL := entry.WebURL
 		data = filters.ApplyHTMLFilters(data, pageURL, activeFilters)
 
 		itemTitle := entryTitle(entry, cachePath)
-		if mainTitle == "" && entry.EntryType == EntryTypePage {
+		if mainTitle == "" && entry.Type == zimfs.QueueEntryTypePage {
 			mainTitle = itemTitle
 		}
 
-		err = w.AddItem(zim.NewBytesItem(entry.ZimPath, entry.MimeType, itemTitle, data))
+		err = w.AddItem(zim.NewBytesItem(entry.Path(), entry.MimeType, itemTitle, data))
 		if err != nil {
 			continue
 		}
-		added++
 	}
 
 	w.AddMetadata("Title", title)
@@ -86,7 +85,7 @@ func BuildZIM(dataDir string, queue *Queue, filterNames []string) (string, error
 	} else {
 		w.AddMetadata("Source", "")
 	}
-	w.AddMetadata("Description", fmt.Sprintf("Archived from %s on %s", queue.Host, date))
+	w.AddMetadata("Description", fmt.Sprintf("Archived from %s on %s", host, date))
 
 	err = w.Finish()
 	if err != nil {
@@ -96,20 +95,27 @@ func BuildZIM(dataDir string, queue *Queue, filterNames []string) (string, error
 	return outputPath, nil
 }
 
-func entryTitle(entry *QueueEntry, cachePath string) string {
-	if entry.EntryType != EntryTypePage {
-		ext := filepath.Ext(entry.Path)
-		return filepath.Base(entry.Path[:len(entry.Path)-len(ext)])
+func queueHost(queue *zimfs.Queue) string {
+	if queue.StartURL != nil {
+		return queue.StartURL.Hostname()
+	}
+	return "archive"
+}
+
+func entryTitle(entry *zimfs.QueueEntry, cachePath string) string {
+	if entry.Type != zimfs.QueueEntryTypePage {
+		ext := filepath.Ext(entry.Path())
+		return filepath.Base(entry.Path()[:len(entry.Path())-len(ext)])
 	}
 
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
-		return entry.Path
+		return entry.Path()
 	}
 
 	doc, err := html.Parse(bytes.NewReader(data))
 	if err != nil {
-		return entry.Path
+		return entry.Path()
 	}
 
 	t := findTitle(doc)
@@ -117,7 +123,7 @@ func entryTitle(entry *QueueEntry, cachePath string) string {
 		return t
 	}
 
-	return entry.Path
+	return entry.Path()
 }
 
 func findTitle(n *html.Node) string {

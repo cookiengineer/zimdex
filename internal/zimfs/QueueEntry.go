@@ -44,10 +44,16 @@ func NewQueueEntry(web_url *url.URL, zim_url *url.URL, typ QueueEntryType, refer
 
 func (entry *QueueEntry) Path() (string) {
 
-	if entry.WebURL != nil {
+	link := entry.WebURL
 
-		hostname := entry.WebURL.Hostname()
-		path     := entry.WebURL.Path
+	if entry.ZimURL != nil {
+		link = entry.ZimURL
+	}
+
+	if link != nil {
+
+		hostname := link.Hostname()
+		path     := link.Path
 
 		if path == "" || path == "/" {
 			path = "/index.html"
@@ -55,8 +61,8 @@ func (entry *QueueEntry) Path() (string) {
 			path = fmt.Sprintf("%sindex.html", path)
 		}
 
-		if entry.WebURL.RawQuery != "" {
-			path = fmt.Sprintf("%s?%s", path, entry.WebURL.RawQuery)
+		if link.RawQuery != "" {
+			path = fmt.Sprintf("%s?%s", path, link.RawQuery)
 		}
 
 		safe_path := path

@@ -7,22 +7,24 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cookiengineer/zimdex/internal/zimfs"
 )
 
 type ScraperWorker struct {
-	Type    EntryType
-	Queue   *Queue
+	Type    zimfs.QueueEntryType
+	Queue   *zimfs.Queue
 	ctx     context.Context
 	scraper *Scraper
 	group   *sync.WaitGroup
 }
 
-func NewScraperWorker(ctx context.Context, entry_type EntryType, scraper *Scraper, wait_group *sync.WaitGroup) *ScraperWorker {
+func NewScraperWorker(ctx context.Context, entry_type zimfs.QueueEntryType, queue *zimfs.Queue, scraper *Scraper, wait_group *sync.WaitGroup) *ScraperWorker {
 
 	return &ScraperWorker{
 		Type:    entry_type,
 		Queue:   queue,
-		context: ctx,
+		ctx:     ctx,
 		scraper: scraper,
 		group:   wait_group,
 	}
@@ -36,89 +38,66 @@ func (worker *ScraperWorker) Run() {
 	for {
 
 		select {
-		case <-worker.context.Done():
-
-			// context was stopped
+		case <-worker.ctx.Done():
 			return
-
 		default:
 		}
 
-		status := worker.scraper.Status()
-
-		if status == "running" {
-
-			// TODO: Everything else must go in here
-
-
-
-
-
+		if worker.scraper.Status() != "running" {
+			time.Sleep(200 * time.Millisecond)
+			continue
 		}
 
-
-		// TODO: rewrite into something like entry := worker.scraper.GetNewTask()
-
-
-		entry := worker.Queue.PopPending(worker.Type)
-		if entry == nil && worker.Type == EntryTypePage {
-			entry = worker.Queue.PopPending(EntryTypeExternalPage)
+		entry, err := worker.Queue.Get(worker.Type)
+		if err != nil && worker.Type == zimfs.QueueEntryTypePage {
+			entry, err = worker.Queue.Get(zimfs.QueueEntryTypeExternalPage)
 		}
 
-		if entry == nil {
+		if err != nil {
 
-			// TODO: scraper.UpdateQueueStatus()
+			pending := worker.Queue.Count(zimfs.QueueEntryStatusPending)
+			active := worker.Queue.Count(zimfs.QueueEntryStatusDownloading)
 
-			remaining := w.Queue.PendingCount()
-			active := w.Queue.DownloadingCount()
-
-			// TODO: This has to happen in Scraper
-			if remaining == 0 && active == 0 {
-
-				// status := scraper.Status()
-				w.scraper.mu.Lock()
-				if w.scraper.status == "running" {
-					w.scraper.status = "complete"
-				}
-				w.scraper.mu.Unlock()
-				w.Queue.Status = "complete"
-				w.Queue.Save()
-				w.scraper.log("Scraping complete")
+			if pending == 0 && active == 0 {
+				worker.scraper.completeIfRunning()
+				worker.Queue.Status = zimfs.QueueStatusIdle
+				worker.Queue.Write()
+				worker.scraper.log("Scraping complete")
 				return
 			}
+
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
 
-		err := w.scraper.downloader.Download(w.ctx, entry)
+		err = worker.scraper.downloader.Download(worker.ctx, &entry)
 
-		w.scraper.trackActivity(entry, 0)
+		worker.scraper.trackActivity(&entry, 0)
 
 		if err != nil {
 			if errors.Is(err, ErrRedirect) {
 				redirectURL := extractRedirectURL(err)
 				if redirectURL != nil {
-					_, localPath, zimPath := URLToPath(redirectURL)
-					w.Queue.AddIfNew(redirectURL, localPath, zimPath, w.Type, entry.URL)
+					worker.Queue.Add(*zimfs.NewQueueEntry(redirectURL, redirectURL, worker.Type, entry.WebURL))
 				}
 			} else if errors.Is(err, ErrRetry) {
-				entry.Status = StatusPending
+				entry.Status = zimfs.QueueEntryStatusPending
 			} else {
-				w.scraper.log("Failed: %s — %v", entry.URL, err)
+				worker.scraper.log("Failed: %s — %v", entry.WebURL, err)
 			}
 		}
 
-		w.Queue.RecalcStats()
+		worker.Queue.Set(entry)
 
-		if entry.Status == StatusDownloaded && (entry.EntryType == EntryTypePage || entry.EntryType == EntryTypeExternalPage) {
-			if w.scraper.Options.PageLimit > 0 && w.Queue.DownloadedCount() >= w.scraper.Options.PageLimit {
-				w.scraper.log("Page limit reached (%d)", w.scraper.Options.PageLimit)
+		if entry.Status == zimfs.QueueEntryStatusDownloaded && (entry.Type == zimfs.QueueEntryTypePage || entry.Type == zimfs.QueueEntryTypeExternalPage) {
+			if worker.scraper.Options.PageLimit > 0 && worker.Queue.Count(zimfs.QueueEntryStatusDownloaded) >= worker.scraper.Options.PageLimit {
+				worker.scraper.log("Page limit reached (%d)", worker.scraper.Options.PageLimit)
 			} else {
-				w.scraper.extractAndEnqueue(entry)
+				worker.scraper.extractAndEnqueue(&entry)
 			}
 		}
 
-		w.Queue.Save()
+		worker.Queue.Write()
 	}
 
 }

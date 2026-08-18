@@ -285,7 +285,7 @@ func (h *Handlers) handleArchiveStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	host := scraper.Host
+	host := scraper.StartURL.Hostname()
 
 	h.ScraperMu.Lock()
 	if _, exists := h.Scrapers[host]; exists {
@@ -328,7 +328,7 @@ func (h *Handlers) handleArchiveStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats := scraper.Stats()
+	stats := scraper.Queue().Info()
 	startURL := ""
 	if scraper.StartURL != nil {
 		startURL = scraper.StartURL.String()
@@ -367,12 +367,12 @@ func (h *Handlers) handleArchiveQueue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	statusFilter := r.URL.Query().Get("status")
-	var entries []*archive.QueueEntry
+	var entries []zimfs.QueueEntry
 
 	if statusFilter != "" {
-		entries = scraper.Queue().GetByStatus(archive.QueueStatus(statusFilter))
+		entries = scraper.Queue().Query(zimfs.QueueEntryStatus(statusFilter))
 	} else {
-		entries = scraper.Queue().GetByStatus(archive.StatusFailed)
+		entries = scraper.Queue().Query(zimfs.QueueEntryStatusFailed)
 	}
 
 	offset, limit := 0, 100
@@ -490,7 +490,7 @@ func (h *Handlers) handleArchiveBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.Manager.Reload()
-	h.Searcher.AddArchive(filepath.Base(zimPath), nil)
+	h.Searcher.AddArchive(filepath.Base(zimPath), h.Manager.Get(filepath.Base(zimPath)))
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"host":     host,

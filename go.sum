@@ -1,5 +1,7 @@
 github.com/cookiengineer/gozim v0.1.0 h1:XjjQJue0ul9bVUDIBJJBxpncIoSQJjXdbAFgTrYdU+A=
 github.com/cookiengineer/gozim v0.1.0/go.mod h1:Iixr1ZVBhJknfnzQcCmsgov+SRVlIPY8PvpK6wotCbI=
+github.com/cookiengineer/gozim v0.1.1 h1:tPH6em6ZZ5BBoPHHtpRVc0d2vl88lD9C66VGFLt/9Tk=
+github.com/cookiengineer/gozim v0.1.1/go.mod h1:Iixr1ZVBhJknfnzQcCmsgov+SRVlIPY8PvpK6wotCbI=
 golang.org/x/net v0.57.0 h1:K5+3DljvIuDG9/Jv9rvyMywYNFCQ9RSUY6OOTTkT+tE=
 golang.org/x/net v0.57.0/go.mod h1:KpXc8iv+r3XplLAG/f7Jsf9RPszJzdR0f58q9vGOuEU=
 golang.org/x/sys v0.47.0 h1:o7XGOvZQCADBQQ4Y7VNq2dRWQR7JmOUW8Kxx4ZsNgWs=

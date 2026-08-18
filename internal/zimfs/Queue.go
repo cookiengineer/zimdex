@@ -16,9 +16,9 @@ type Queue struct {
 	Folder    string         `json:"folder"`
 	StartDate time.Time      `json:"-"`
 	StartURL  *url.URL       `json:"-"`
-	Info      QueueInfo      `json:"info"`
+	info      QueueInfo      `json:"-"`
 	Status    QueueStatus    `json:"status"`
-	entries   []*QueueEntry  `json:"entries"`
+	entries   []*QueueEntry  `json:"-"`
 	urls      map[string]int `json:"-"`
 	mutex     sync.RWMutex   `json:"-"`
 }
@@ -56,12 +56,16 @@ func (queue *Queue) MarshalJSON() ([]byte, error) {
 	type Alias Queue
 
 	return json.Marshal(&struct {
-		StartDate string `json:"start_date"`
-		StartURL  string `json:"start_url"`
+		StartDate string        `json:"start_date"`
+		StartURL  string        `json:"start_url"`
+		Info      QueueInfo     `json:"info"`
+		Entries   []*QueueEntry `json:"entries"`
 		*Alias
 	}{
 		StartDate: queue.StartDate.Format("2006-01-02"),
 		StartURL:  queue.StartURL.String(),
+		Info:      queue.info,
+		Entries:   queue.entries,
 		Alias:     (*Alias)(queue),
 	})
 
@@ -72,8 +76,10 @@ func (queue *Queue) UnmarshalJSON(data []byte) error {
 	type Alias Queue
 
 	tmp := &struct {
-		StartDate string `json:"start_date"`
-		StartURL  string `json:"start_url"`
+		StartDate string        `json:"start_date"`
+		StartURL  string        `json:"start_url"`
+		Info      QueueInfo     `json:"info"`
+		Entries   []*QueueEntry `json:"entries"`
 		*Alias
 	}{
 		Alias: (*Alias)(queue),
@@ -97,6 +103,9 @@ func (queue *Queue) UnmarshalJSON(data []byte) error {
 		} else {
 			return err2
 		}
+
+		queue.info = tmp.Info
+		queue.entries = tmp.Entries
 
 		return nil
 
@@ -126,10 +135,10 @@ func (queue *Queue) Add(entry QueueEntry) bool {
 			entry.Status = QueueEntryStatusDownloaded
 			entry.Size   = info.Size()
 
-			queue.Info.Downloaded += 1
+			queue.info.Downloaded += 1
 
 		} else {
-			queue.Info.Pending += 1
+			queue.info.Pending += 1
 		}
 
 		queue.urls[canonicalized.String()] = len(queue.entries)
@@ -154,15 +163,15 @@ func (queue *Queue) Count(status QueueEntryStatus) int {
 
 	switch status {
 	case QueueEntryStatusPending:
-		result = queue.Info.Pending
+		result = queue.info.Pending
 	case QueueEntryStatusDownloading:
-		result = queue.Info.Downloading
+		result = queue.info.Downloading
 	case QueueEntryStatusDownloaded:
-		result = queue.Info.Downloaded
+		result = queue.info.Downloaded
 	case QueueEntryStatusFailed:
-		result = queue.Info.Failed
+		result = queue.info.Failed
 	case QueueEntryStatusSkipped:
-		result = queue.Info.Skipped
+		result = queue.info.Skipped
 	}
 
 	return result
@@ -183,8 +192,8 @@ func (queue *Queue) Get(typ QueueEntryType) (QueueEntry, error) {
 
 			entry.Status = QueueEntryStatusDownloading
 
-			queue.Info.Pending     -= 1
-			queue.Info.Downloading += 1
+			queue.info.Pending     -= 1
+			queue.info.Downloading += 1
 
 			// Clone value
 			result = *entry
@@ -216,6 +225,21 @@ func (queue *Queue) Has(link *url.URL) bool {
 	}
 
 	return false
+
+}
+
+func (queue *Queue) Info() QueueInfo {
+
+	queue.mutex.RLock()
+	defer queue.mutex.RUnlock()
+
+	return QueueInfo{
+		Pending:     queue.info.Pending,
+		Downloading: queue.info.Downloading,
+		Downloaded:  queue.info.Downloaded,
+		Failed:      queue.info.Failed,
+		Skipped:     queue.info.Skipped,
+	}
 
 }
 
@@ -327,30 +351,30 @@ func (queue *Queue) Set(entry QueueEntry) bool {
 
 		switch queue.entries[index].Status {
 		case QueueEntryStatusPending:
-			queue.Info.Pending -= 1
+			queue.info.Pending -= 1
 		case QueueEntryStatusDownloading:
-			queue.Info.Downloading -= 1
+			queue.info.Downloading -= 1
 		case QueueEntryStatusDownloaded:
-			queue.Info.Downloaded -= 1
+			queue.info.Downloaded -= 1
 		case QueueEntryStatusFailed:
-			queue.Info.Failed -= 1
+			queue.info.Failed -= 1
 		case QueueEntryStatusSkipped:
-			queue.Info.Skipped -= 1
+			queue.info.Skipped -= 1
 		}
 
 		queue.entries[index] = &entry
 
 		switch queue.entries[index].Status {
 		case QueueEntryStatusPending:
-			queue.Info.Pending += 1
+			queue.info.Pending += 1
 		case QueueEntryStatusDownloading:
-			queue.Info.Downloading += 1
+			queue.info.Downloading += 1
 		case QueueEntryStatusDownloaded:
-			queue.Info.Downloaded += 1
+			queue.info.Downloaded += 1
 		case QueueEntryStatusFailed:
-			queue.Info.Failed += 1
+			queue.info.Failed += 1
 		case QueueEntryStatusSkipped:
-			queue.Info.Skipped += 1
+			queue.info.Skipped += 1
 		}
 
 		return true
@@ -414,6 +438,6 @@ func (queue *Queue) refresh_info() {
 
 	}
 
-	queue.Info = info
+	queue.info = info
 
 }

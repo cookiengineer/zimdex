@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/cookiengineer/gozim/archive/zim"
+	"github.com/cookiengineer/zimdex/internal/utils"
+	"github.com/cookiengineer/zimdex/internal/zimfs"
 )
 
 func TestCanonicalizeURL(t *testing.T) {
@@ -37,52 +39,44 @@ func TestCanonicalizeURL(t *testing.T) {
 		if err != nil {
 			t.Fatalf("url.Parse(%q): %v", tt.input, err)
 		}
-		result := CanonicalizeURL(u)
+		result := utils.CanonicalizeURL(u)
 		if result.String() != tt.expected {
 			t.Errorf("CanonicalizeURL(%q) = %q, want %q", tt.input, result.String(), tt.expected)
 		}
 	}
 }
 
-func TestURLToPath(t *testing.T) {
-	u, _ := url.Parse("https://en.wikipedia.org/wiki/Main_Page")
-	host, local, zim := URLToPath(u)
+func TestQueueEntryPath(t *testing.T) {
+	webURL, _ := url.Parse("https://en.wikipedia.org/w/index.php?title=Main_Page")
+	zimURL, _ := url.Parse("https://en.wikipedia.org/wiki/Main_Page")
 
-	if host != "en.wikipedia.org" {
-		t.Errorf("host = %q, want en.wikipedia.org", host)
+	entry := zimfs.NewQueueEntry(webURL, zimURL, zimfs.QueueEntryTypePage, nil)
+	if got := entry.Path(); got != "en.wikipedia.org/wiki/Main_Page" {
+		t.Errorf("Path() = %q, want %q", got, "en.wikipedia.org/wiki/Main_Page")
 	}
-	if local != filepath.FromSlash("en.wikipedia.org/wiki/Main_Page") {
-		t.Errorf("local = %q", local)
-	}
-	if zim != "en.wikipedia.org/wiki/Main_Page" {
-		t.Errorf("zim = %q, want en.wikipedia.org/wiki/Main_Page", zim)
+}
+
+func TestQueueEntryPathFallback(t *testing.T) {
+	webURL, _ := url.Parse("https://example.com/about")
+
+	entry := zimfs.NewQueueEntry(webURL, nil, zimfs.QueueEntryTypePage, nil)
+	if got := entry.Path(); got != "example.com/about" {
+		t.Errorf("Path() = %q, want %q", got, "example.com/about")
 	}
 }
 
 func TestQueueAddAndDedup(t *testing.T) {
 	dir := t.TempDir()
 	startURL, _ := url.Parse("https://example.com/")
-	q := NewQueue(filepath.Join(dir, "test.json"), "example.com", startURL, true, 0)
+	q := zimfs.NewQueue(dir, startURL)
 
 	entryURL, _ := url.Parse("https://example.com/")
-	added := q.Add(QueueEntry{
-		URL:       entryURL,
-		Path:      "example.com/index.html",
-		ZimPath:   "C/example.com/index.html",
-		EntryType: EntryTypePage,
-		Status:    StatusPending,
-	})
+	added := q.Add(*zimfs.NewQueueEntry(entryURL, entryURL, zimfs.QueueEntryTypePage, startURL))
 	if !added {
 		t.Error("expected first add to succeed")
 	}
 
-	added = q.Add(QueueEntry{
-		URL:       entryURL,
-		Path:      "example.com/index.html",
-		ZimPath:   "C/example.com/index.html",
-		EntryType: EntryTypePage,
-		Status:    StatusPending,
-	})
+	added = q.Add(*zimfs.NewQueueEntry(entryURL, entryURL, zimfs.QueueEntryTypePage, startURL))
 	if added {
 		t.Error("expected duplicate add to fail")
 	}
@@ -91,108 +85,103 @@ func TestQueueAddAndDedup(t *testing.T) {
 func TestQueueAddIfNew(t *testing.T) {
 	dir := t.TempDir()
 	startURL, _ := url.Parse("https://example.com/")
-	q := NewQueue(filepath.Join(dir, "test.json"), "example.com", startURL, true, 0)
+	q := zimfs.NewQueue(dir, startURL)
 
 	pageURL, _ := url.Parse("https://example.com/page1")
-	ok := q.AddIfNew(pageURL, "example.com/page1", "C/example.com/page1", EntryTypePage, nil)
-	if !ok {
-		t.Error("expected AddIfNew to return true for new URL")
+	if q.Has(pageURL) {
+		t.Error("expected Has to return false for a new URL")
 	}
 
-	ok = q.AddIfNew(pageURL, "example.com/page1", "C/example.com/page1", EntryTypePage, nil)
-	if ok {
-		t.Error("expected AddIfNew to return false for duplicate URL")
+	if !q.Add(*zimfs.NewQueueEntry(pageURL, pageURL, zimfs.QueueEntryTypePage, startURL)) {
+		t.Error("expected Add to return true for a new URL")
+	}
+
+	if !q.Has(pageURL) {
+		t.Error("expected Has to return true after Add")
+	}
+
+	if q.Add(*zimfs.NewQueueEntry(pageURL, pageURL, zimfs.QueueEntryTypePage, startURL)) {
+		t.Error("expected duplicate Add to return false")
 	}
 }
 
-func TestQueuePopPending(t *testing.T) {
+func TestQueueGet(t *testing.T) {
 	dir := t.TempDir()
 	startURL, _ := url.Parse("https://example.com/")
-	q := NewQueue(filepath.Join(dir, "test.json"), "example.com", startURL, true, 0)
+	q := zimfs.NewQueue(dir, startURL)
 
 	pageURL, _ := url.Parse("https://example.com/page")
-	q.Add(QueueEntry{
-		URL:       pageURL,
-		Path:      "example.com/page",
-		ZimPath:   "C/example.com/page",
-		EntryType: EntryTypePage,
-		Status:    StatusPending,
-	})
+	q.Add(*zimfs.NewQueueEntry(pageURL, pageURL, zimfs.QueueEntryTypePage, startURL))
 
 	assetURL, _ := url.Parse("https://example.com/asset.css")
-	q.Add(QueueEntry{
-		URL:       assetURL,
-		Path:      "example.com/asset.css",
-		ZimPath:   "C/example.com/asset.css",
-		EntryType: EntryTypeAsset,
-		Status:    StatusPending,
-	})
+	q.Add(*zimfs.NewQueueEntry(assetURL, assetURL, zimfs.QueueEntryTypeAsset, startURL))
 
-	entry := q.PopPending(EntryTypePage)
-	if entry == nil {
-		t.Fatal("expected a page entry")
+	entry, err := q.Get(zimfs.QueueEntryTypePage)
+	if err != nil {
+		t.Fatalf("expected a page entry: %v", err)
 	}
-	if entry.Status != StatusDownloading {
+	if entry.Status != zimfs.QueueEntryStatusDownloading {
 		t.Errorf("expected status downloading, got %q", entry.Status)
 	}
-	if entry.URL.String() != "https://example.com/page" {
-		t.Errorf("expected page URL, got %q", entry.URL)
+	if entry.WebURL.String() != "https://example.com/page" {
+		t.Errorf("expected page URL, got %q", entry.WebURL)
 	}
 
-	entry2 := q.PopPending(EntryTypePage)
-	if entry2 != nil {
+	if _, err := q.Get(zimfs.QueueEntryTypePage); err == nil {
 		t.Error("expected no more page entries")
 	}
 
-	entry3 := q.PopPending(EntryTypeAsset)
-	if entry3 == nil {
-		t.Fatal("expected an asset entry")
+	if _, err := q.Get(zimfs.QueueEntryTypeAsset); err != nil {
+		t.Fatalf("expected an asset entry: %v", err)
 	}
 }
 
 func TestQueueStats(t *testing.T) {
 	dir := t.TempDir()
 	startURL, _ := url.Parse("https://example.com/")
-	q := NewQueue(filepath.Join(dir, "test.json"), "example.com", startURL, true, 0)
+	q := zimfs.NewQueue(dir, startURL)
 
 	p1, _ := url.Parse("https://example.com/p1")
 	p2, _ := url.Parse("https://example.com/p2")
 	f1, _ := url.Parse("https://example.com/f1")
-	q.Add(QueueEntry{URL: p1, EntryType: EntryTypePage, Status: StatusPending})
-	q.Add(QueueEntry{URL: p2, EntryType: EntryTypePage, Status: StatusPending})
-	q.Add(QueueEntry{URL: f1, EntryType: EntryTypeAsset, Status: StatusFailed})
+	q.Add(*zimfs.NewQueueEntry(p1, p1, zimfs.QueueEntryTypePage, startURL))
+	q.Add(*zimfs.NewQueueEntry(p2, p2, zimfs.QueueEntryTypePage, startURL))
 
-	if q.PendingCount() != 2 {
-		t.Errorf("expected 2 pending, got %d", q.PendingCount())
+	failed := zimfs.NewQueueEntry(f1, f1, zimfs.QueueEntryTypeAsset, startURL)
+	q.Add(*failed)
+	failed.Status = zimfs.QueueEntryStatusFailed
+	q.Set(*failed)
+
+	if q.Count(zimfs.QueueEntryStatusPending) != 2 {
+		t.Errorf("expected 2 pending, got %d", q.Count(zimfs.QueueEntryStatusPending))
 	}
-	if q.FailedCount() != 1 {
-		t.Errorf("expected 1 failed, got %d", q.FailedCount())
+	if q.Count(zimfs.QueueEntryStatusFailed) != 1 {
+		t.Errorf("expected 1 failed, got %d", q.Count(zimfs.QueueEntryStatusFailed))
 	}
 }
 
 func TestQueueSaveLoad(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "test.json")
-
 	startURL, _ := url.Parse("https://example.com/")
-	q := NewQueue(path, "example.com", startURL, true, 100)
-	pageURL, _ := url.Parse("https://example.com/page1")
-	q.Add(QueueEntry{URL: pageURL, EntryType: EntryTypePage, Status: StatusDownloaded})
-	q.Save()
 
-	q2 := NewQueue(path, "example.com", startURL, true, 100)
-	if q2.PageLimit != 100 {
-		t.Errorf("expected pageLimit 100, got %d", q2.PageLimit)
-	}
-	if q2.DownloadedCount() != 1 {
-		t.Errorf("expected 1 downloaded, got %d", q2.DownloadedCount())
+	q := zimfs.NewQueue(dir, startURL)
+	pageURL, _ := url.Parse("https://example.com/page1")
+	entry := zimfs.NewQueueEntry(pageURL, pageURL, zimfs.QueueEntryTypePage, startURL)
+	q.Add(*entry)
+	entry.Status = zimfs.QueueEntryStatusDownloaded
+	q.Set(*entry)
+	q.Write()
+
+	q2 := zimfs.NewQueue(dir, startURL)
+	if q2.Count(zimfs.QueueEntryStatusDownloaded) != 1 {
+		t.Errorf("expected 1 downloaded, got %d", q2.Count(zimfs.QueueEntryStatusDownloaded))
 	}
 }
 
 func TestQueueConcurrent(t *testing.T) {
 	dir := t.TempDir()
 	startURL, _ := url.Parse("https://example.com/")
-	q := NewQueue(filepath.Join(dir, "test.json"), "example.com", startURL, true, 0)
+	q := zimfs.NewQueue(dir, startURL)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
@@ -200,13 +189,13 @@ func TestQueueConcurrent(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			u, _ := url.Parse(fmt.Sprintf("https://example.com/page%d", n))
-			q.Add(QueueEntry{URL: u, EntryType: EntryTypePage, Status: StatusPending})
+			q.Add(*zimfs.NewQueueEntry(u, u, zimfs.QueueEntryTypePage, startURL))
 		}(i)
 	}
 	wg.Wait()
 
-	if q.PendingCount() != 50 {
-		t.Errorf("expected 50 pending, got %d", q.PendingCount())
+	if q.Count(zimfs.QueueEntryStatusPending) != 50 {
+		t.Errorf("expected 50 pending, got %d", q.Count(zimfs.QueueEntryStatusPending))
 	}
 }
 
@@ -283,24 +272,19 @@ func TestDownloader(t *testing.T) {
 
 	t.Run("successful download", func(t *testing.T) {
 		entryURL, _ := url.Parse(ts.URL + "/ok")
-		entry := &QueueEntry{
-			URL:       entryURL,
-			Path:      "testhost/ok",
-			EntryType: EntryTypePage,
-			Status:    StatusPending,
-		}
+		entry := zimfs.NewQueueEntry(entryURL, entryURL, zimfs.QueueEntryTypePage, nil)
 		err := d.Download(context.Background(), entry)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if entry.Status != StatusDownloaded {
+		if entry.Status != zimfs.QueueEntryStatusDownloaded {
 			t.Errorf("expected downloaded, got %q", entry.Status)
 		}
 		if entry.MimeType != "text/html" {
 			t.Errorf("expected text/html, got %q", entry.MimeType)
 		}
 
-		body, err := os.ReadFile(filepath.Join(dir, entry.Path))
+		body, err := os.ReadFile(filepath.Join(dir, entry.Path()))
 		if err != nil {
 			t.Fatalf("cache file not found: %v", err)
 		}
@@ -311,14 +295,9 @@ func TestDownloader(t *testing.T) {
 
 	t.Run("retry on 500", func(t *testing.T) {
 		entryURL, _ := url.Parse(ts.URL + "/error")
-		entry := &QueueEntry{
-			URL:       entryURL,
-			Path:      "testhost/error",
-			EntryType: EntryTypePage,
-			Status:    StatusPending,
-		}
+		entry := zimfs.NewQueueEntry(entryURL, entryURL, zimfs.QueueEntryTypePage, nil)
 		d.Download(context.Background(), entry)
-		if entry.RetryCount == 0 {
+		if entry.Retries == 0 {
 			t.Error("expected retry count > 0 after 500")
 		}
 	})
@@ -344,25 +323,25 @@ func TestExtractor(t *testing.T) {
 
 	urls := ext.Extract([]byte(html))
 
-	found := make(map[string]EntryType)
+	found := make(map[string]zimfs.QueueEntryType)
 	for _, u := range urls {
 		found[u.URL.String()] = u.EntryType
 	}
 
 	tests := []struct {
 		urlStr    string
-		entryType EntryType
+		entryType zimfs.QueueEntryType
 	}{
-		{"https://example.com/style.css", EntryTypeAsset},
-		{"https://example.com/images/logo.png", EntryTypeAsset},
-		{"https://example.com/img/1x.png", EntryTypeAsset},
-		{"https://example.com/img/2x.png", EntryTypeAsset},
-		{"https://example.com/about", EntryTypePage},
-		{"https://example.com/doc.pdf", EntryTypeAsset},
-		{"https://example.com/js/app.js", EntryTypeAsset},
-		{"https://example.com/media/video.mp4", EntryTypeAsset},
-		{"https://example.com/media/poster.jpg", EntryTypeAsset},
-		{"https://example.com/images/bg.png", EntryTypeAsset},
+		{"https://example.com/style.css", zimfs.QueueEntryTypeAsset},
+		{"https://example.com/images/logo.png", zimfs.QueueEntryTypeAsset},
+		{"https://example.com/img/1x.png", zimfs.QueueEntryTypeAsset},
+		{"https://example.com/img/2x.png", zimfs.QueueEntryTypeAsset},
+		{"https://example.com/about", zimfs.QueueEntryTypePage},
+		{"https://example.com/doc.pdf", zimfs.QueueEntryTypeAsset},
+		{"https://example.com/js/app.js", zimfs.QueueEntryTypeAsset},
+		{"https://example.com/media/video.mp4", zimfs.QueueEntryTypeAsset},
+		{"https://example.com/media/poster.jpg", zimfs.QueueEntryTypeAsset},
+		{"https://example.com/images/bg.png", zimfs.QueueEntryTypeAsset},
 	}
 
 	for _, tt := range tests {
@@ -379,9 +358,9 @@ func TestExtractor(t *testing.T) {
 	extURL := "https://other.com/page"
 	et, ok := found[extURL]
 	if !ok {
-		t.Errorf("expected external link %q to be extracted as EntryTypeExternalPage", extURL)
-	} else if et != EntryTypeExternalPage {
-		t.Errorf("external link %q: expected %s, got %s", extURL, EntryTypeExternalPage, et)
+		t.Errorf("expected external link %q to be extracted as zimfs.QueueEntryTypeExternalPage", extURL)
+	} else if et != zimfs.QueueEntryTypeExternalPage {
+		t.Errorf("external link %q: expected %s, got %s", extURL, zimfs.QueueEntryTypeExternalPage, et)
 	}
 }
 
@@ -478,13 +457,13 @@ func TestScraperNew(t *testing.T) {
 		t.Fatalf("NewScraper: %v", err)
 	}
 
-	if s.Host == "" {
+	if s.StartURL == nil || s.StartURL.Hostname() == "" {
 		t.Error("expected non-empty host")
 	}
 	if s.Status() != "idle" {
 		t.Errorf("expected idle status, got %q", s.Status())
 	}
-	if s.queue.PendingCount() == 0 {
+	if s.queue.Count(zimfs.QueueEntryStatusPending) == 0 {
 		t.Error("expected start URL to be enqueued")
 	}
 }
@@ -523,7 +502,7 @@ func TestScraperStartStop(t *testing.T) {
 	if s.Status() != "stopped" {
 		t.Errorf("expected stopped, got %q", s.Status())
 	}
-	t.Logf("downloaded=%d", s.queue.DownloadedCount())
+	t.Logf("downloaded=%d", s.queue.Count(zimfs.QueueEntryStatusDownloaded))
 }
 
 func TestScraperExtractAndEnqueue(t *testing.T) {
@@ -558,7 +537,7 @@ func TestScraperExtractAndEnqueue(t *testing.T) {
 	time.Sleep(2 * time.Second)
 	s.Stop()
 
-	if s.queue.DownloadedCount() < 1 {
+	if s.queue.Count(zimfs.QueueEntryStatusDownloaded) < 1 {
 		t.Error("expected at least 1 downloaded entry")
 	}
 }
@@ -601,12 +580,15 @@ func TestBuildZIM(t *testing.T) {
 	time.Sleep(5 * time.Second)
 	s.Stop()
 
-	t.Logf("downloaded=%d pending=%d failed=%d", s.queue.DownloadedCount(), s.queue.PendingCount(), s.queue.FailedCount())
+	t.Logf("downloaded=%d pending=%d failed=%d",
+		s.queue.Count(zimfs.QueueEntryStatusDownloaded),
+		s.queue.Count(zimfs.QueueEntryStatusPending),
+		s.queue.Count(zimfs.QueueEntryStatusFailed))
 
-	if s.queue.DownloadedCount() == 0 {
-		entries := s.queue.GetByStatus(StatusPending)
+	if s.queue.Count(zimfs.QueueEntryStatusDownloaded) == 0 {
+		entries := s.queue.Query(zimfs.QueueEntryStatusPending)
 		for _, e := range entries {
-			t.Logf("  pending: type=%s url=%s", e.EntryType, e.URL)
+			t.Logf("  pending: type=%s url=%s", e.Type, e.WebURL)
 		}
 		t.Skip("no entries downloaded")
 	}
@@ -669,9 +651,12 @@ func TestCrossHostAssets(t *testing.T) {
 	time.Sleep(5 * time.Second)
 	s.Stop()
 
-	t.Logf("downloaded=%d pending=%d failed=%d", s.queue.DownloadedCount(), s.queue.PendingCount(), s.queue.FailedCount())
+	t.Logf("downloaded=%d pending=%d failed=%d",
+		s.queue.Count(zimfs.QueueEntryStatusDownloaded),
+		s.queue.Count(zimfs.QueueEntryStatusPending),
+		s.queue.Count(zimfs.QueueEntryStatusFailed))
 
-	if s.queue.DownloadedCount() == 0 {
+	if s.queue.Count(zimfs.QueueEntryStatusDownloaded) == 0 {
 		t.Skip("no entries downloaded")
 	}
 

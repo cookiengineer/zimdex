@@ -34,7 +34,6 @@ func ApplyURLRewriter(rawURL *url.URL, filters []Filter) (newURL, downloadURL *u
 }
 
 var Registry = []Filter{
-	&TrackingFilter{},
 	&MediaWikiFilter{},
 	&ScriptFilter{},
 }

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cookiengineer/zimdex/internal/zimfs"
 )
 
 var userAgents = []string{
@@ -37,7 +39,7 @@ func randomUA() string {
 	return userAgents[rand.Intn(len(userAgents))]
 }
 
-func setRequestHeaders(req *http.Request, entry *QueueEntry) {
+func setRequestHeaders(req *http.Request, entry *zimfs.QueueEntry) {
 	ua := randomUA()
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
@@ -214,14 +216,10 @@ func (d *Downloader) getThrottle(host string) *ThrottleState {
 	return t
 }
 
-func (d *Downloader) Download(ctx context.Context, entry *QueueEntry) error {
-	downloadURL := entry.URL
-	if entry.DownloadURL != nil {
-		downloadURL = entry.DownloadURL
-	}
+func (d *Downloader) Download(ctx context.Context, entry *zimfs.QueueEntry) error {
+	downloadURL := entry.WebURL
 	if downloadURL == nil {
-		entry.Status = StatusFailed
-		entry.Error = "no URL to download"
+		entry.Status = zimfs.QueueEntryStatusFailed
 		return fmt.Errorf("no URL to download")
 	}
 
@@ -235,8 +233,7 @@ func (d *Downloader) Download(ctx context.Context, entry *QueueEntry) error {
 
 	req, err := http.NewRequestWithContext(reqCtx, "GET", downloadURLStr, nil)
 	if err != nil {
-		entry.Status = StatusFailed
-		entry.Error = fmt.Sprintf("request error: %v", err)
+		entry.Status = zimfs.QueueEntryStatusFailed
 		throttle.RecordError()
 		return err
 	}
@@ -263,37 +260,38 @@ func (d *Downloader) Download(ctx context.Context, entry *QueueEntry) error {
 		}
 
 		if err := d.SaveToCache(entry, body); err != nil {
-			entry.Status = StatusFailed
-			entry.Error = fmt.Sprintf("cache write: %v", err)
+			entry.Status = zimfs.QueueEntryStatusFailed
 			throttle.RecordError()
 			return err
 		}
 
 		entry.MimeType = DetectMimeType(resp.Header.Get("Content-Type"), downloadURLStr)
 		entry.Size = int64(len(body))
-		entry.Status = StatusDownloaded
+		entry.Status = zimfs.QueueEntryStatusDownloaded
+		entry.StatusCode = resp.StatusCode
 		throttle.RecordSuccess()
 		return nil
 
 	case resp.StatusCode >= 300 && resp.StatusCode < 400:
 		location := resp.Header.Get("Location")
 		if location == "" {
-			entry.Status = StatusFailed
-			entry.Error = "redirect with no Location header"
-			return fmt.Errorf("%s", entry.Error)
+			entry.Status = zimfs.QueueEntryStatusFailed
+			entry.StatusCode = resp.StatusCode
+			return fmt.Errorf("redirect with no Location header")
 		}
 
 		resolved, _ := resolveURL(downloadURL, location)
 		if resolved != nil && resolved.String() != downloadURLStr {
-			entry.Status = StatusSkipped
+			entry.Status = zimfs.QueueEntryStatusSkipped
+			entry.StatusCode = resp.StatusCode
 			return fmt.Errorf("%w: %s", ErrRedirect, resolved.String())
 		}
 		return d.handleRetry(entry, fmt.Sprintf("HTTP %d", resp.StatusCode))
 
 	case resp.StatusCode == 404:
-		if entry.RetryCount >= 1 {
-			entry.Status = StatusFailed
-			entry.Error = "404 Not Found"
+		if entry.Retries >= 1 {
+			entry.Status = zimfs.QueueEntryStatusFailed
+			entry.StatusCode = resp.StatusCode
 			return fmt.Errorf("404 Not Found")
 		}
 		return d.handleRetry(entry, "404 Not Found")
@@ -313,24 +311,23 @@ func (d *Downloader) Download(ctx context.Context, entry *QueueEntry) error {
 
 	default:
 		throttle.RecordError()
-		entry.Status = StatusFailed
-		entry.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
+		entry.Status = zimfs.QueueEntryStatusFailed
+		entry.StatusCode = resp.StatusCode
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 }
 
-func (d *Downloader) handleRetry(entry *QueueEntry, errMsg string) error {
-	entry.RetryCount++
-	if entry.RetryCount > d.maxRetries {
-		entry.Status = StatusFailed
-		entry.Error = errMsg
+func (d *Downloader) handleRetry(entry *zimfs.QueueEntry, errMsg string) error {
+	entry.Retries++
+	if entry.Retries > d.maxRetries {
+		entry.Status = zimfs.QueueEntryStatusFailed
 		return fmt.Errorf("%s", errMsg)
 	}
 	return fmt.Errorf("%w: %s", ErrRetry, errMsg)
 }
 
-func (d *Downloader) SaveToCache(entry *QueueEntry, body []byte) error {
-	fullPath := filepath.Join(d.dataDir, entry.Path)
+func (d *Downloader) SaveToCache(entry *zimfs.QueueEntry, body []byte) error {
+	fullPath := filepath.Join(d.dataDir, entry.Path())
 	dir := filepath.Dir(fullPath)
 
 	if err := os.MkdirAll(dir, 0755); err != nil {
