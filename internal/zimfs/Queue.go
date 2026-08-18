@@ -1,18 +1,15 @@
 package zimfs
 
-import (
-	"encoding/json"
-	"fmt"
-	"net/url"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
-	"time"
-
-	"github.com/cookiengineer/zimdex/internal/filters"
-	"github.com/cookiengineer/zimdex/internal/utils"
-)
+import "github.com/cookiengineer/zimdex/internal/filters"
+import utils_urls "github.com/cookiengineer/zimdex/internal/utils/urls"
+import "encoding/json"
+import "fmt"
+import "net/url"
+import "os"
+import "path/filepath"
+import "strings"
+import "sync"
+import "time"
 
 type Queue struct {
 	Folder    string           `json:"folder"`
@@ -124,7 +121,7 @@ func (queue *Queue) Add(entry QueueEntry) bool {
 	entry.folder = queue.Folder
 	entry.filters = queue.Filters
 
-	canonicalized := utils.CanonicalizeURL(entry.WebURL)
+	canonicalized := utils_urls.Canonicalize(entry.WebURL)
 
 	queue.mutex.RLock()
 	_, exists_already := queue.urls[canonicalized.String()]
@@ -224,7 +221,7 @@ func (queue *Queue) Has(link *url.URL) bool {
 	queue.mutex.RLock()
 	defer queue.mutex.RUnlock()
 
-	canonicalized := utils.CanonicalizeURL(link)
+	canonicalized := utils_urls.Canonicalize(link)
 	_, ok         := queue.urls[canonicalized.String()]
 
 	if ok == true {
@@ -285,9 +282,9 @@ func (queue *Queue) EnqueueURL(raw_url *url.URL, html_body []byte, referrer *url
 		download_url = new_url
 	}
 
-	entry.WebURL = utils.CanonicalizeURL(download_url)
+	entry.WebURL = utils_urls.Canonicalize(download_url)
 	entry.ZimURL = new_url
-	entry.MimeType = utils.GetMimeType(download_url)
+	entry.MimeType = utils_urls.GetMimeType(download_url)
 
 	return queue.Add(*entry)
 
@@ -323,7 +320,7 @@ func (queue *Queue) Read() error {
 				entry.folder = queue.Folder
 				entry.filters = queue.Filters
 
-				canonicalized := utils.CanonicalizeURL(entry.WebURL)
+				canonicalized := utils_urls.Canonicalize(entry.WebURL)
 
 				if canonicalized.String() != "" {
 					queue.urls[canonicalized.String()] = index
@@ -380,7 +377,7 @@ func (queue *Queue) Set(entry QueueEntry) bool {
 	entry.folder = queue.Folder
 	entry.filters = queue.Filters
 
-	canonicalized := utils.CanonicalizeURL(entry.WebURL)
+	canonicalized := utils_urls.Canonicalize(entry.WebURL)
 
 	index, ok := queue.urls[canonicalized.String()]
 

@@ -1,12 +1,10 @@
-package utils
+package urls
 
-import (
-	net_url "net/url"
-	"strings"
-	"github.com/cookiengineer/zimdex/internal/filters"
-)
+import "github.com/cookiengineer/zimdex/internal/filters"
+import net_url "net/url"
+import "strings"
 
-func CanonicalizeURL(url *net_url.URL) *net_url.URL {
+func Canonicalize(url *net_url.URL) *net_url.URL {
 
 	if url != nil {
 

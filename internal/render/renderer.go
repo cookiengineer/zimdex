@@ -3,52 +3,16 @@ package render
 import (
 	"bytes"
 	"fmt"
-	"path/filepath"
+	"net/url"
 	"strings"
 
 	"github.com/cookiengineer/gozim/archive/zim"
 	"github.com/cookiengineer/zimdex/internal/filters"
+	utils_urls "github.com/cookiengineer/zimdex/internal/utils/urls"
 	"golang.org/x/net/html"
 )
 
 const maxRedirectHops = 5
-
-var extMimeMap = map[string]string{
-	".css":   "text/css",
-	".js":    "application/javascript",
-	".mjs":   "application/javascript",
-	".html":  "text/html",
-	".htm":   "text/html",
-	".svg":   "image/svg+xml",
-	".png":   "image/png",
-	".jpg":   "image/jpeg",
-	".jpeg":  "image/jpeg",
-	".gif":   "image/gif",
-	".webp":  "image/webp",
-	".ico":   "image/x-icon",
-	".woff":  "font/woff",
-	".woff2": "font/woff2",
-	".ttf":   "font/ttf",
-	".eot":   "application/vnd.ms-fontobject",
-	".json":  "application/json",
-	".xml":   "application/xml",
-	".txt":   "text/plain",
-	".pdf":   "application/pdf",
-}
-
-func correctMimeType(mime string, path string) string {
-	if mime != "" && mime != "application/octet-stream" {
-		return mime
-	}
-	ext := strings.ToLower(filepath.Ext(path))
-	if corrected, ok := extMimeMap[ext]; ok {
-		return corrected
-	}
-	if mime != "" {
-		return mime
-	}
-	return "application/octet-stream"
-}
 
 func Render(archive *zim.Archive, zimFile string, renderPath string) ([]byte, string, error) {
 	entry, err := resolveEntry(archive, renderPath)
@@ -61,7 +25,12 @@ func Render(archive *zim.Archive, zimFile string, renderPath string) ([]byte, st
 		return nil, "", fmt.Errorf("item read failed: %w", err)
 	}
 
-	mimeType := correctMimeType(item.MimeType(), entry.Path())
+	mimeType := item.MimeType()
+
+	if mimeType == "application/octet-stream" {
+		tmp_url, _ := url.Parse("http://localhost" + entry.Path())
+		mimeType = utils_urls.GetMimeType(tmp_url)
+	}
 
 	var data []byte
 	if item.Size() > 100*1024*1024 {

@@ -1,10 +1,8 @@
-package utils
+package urls
 
-import (
-	net_url "net/url"
-	"path/filepath"
-	"strings"
-)
+import net_url "net/url"
+import "path/filepath"
+import "strings"
 
 var mime_types = map[string]string{
 	".bmp":   "image/bmp",

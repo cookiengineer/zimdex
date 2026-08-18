@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cookiengineer/zimdex/internal/utils"
+	utils_urls "github.com/cookiengineer/zimdex/internal/utils/urls"
 	"github.com/cookiengineer/zimdex/internal/zimfs"
 )
 
@@ -96,7 +96,7 @@ func NewScraper(options ScraperOptions) (*Scraper, error) {
 		}
 	}
 
-	canonStart := utils.CanonicalizeURL(starturl)
+	canonStart := utils_urls.Canonicalize(starturl)
 	enqueueSeed(canonStart)
 
 	return scraper, nil
@@ -194,7 +194,7 @@ func (s *Scraper) RetryFailed(urls []*url.URL) int {
 	wanted := make(map[string]bool, len(urls))
 	for _, u := range urls {
 		if u != nil {
-			wanted[utils.CanonicalizeURL(u).String()] = true
+			wanted[utils_urls.Canonicalize(u).String()] = true
 		}
 	}
 
@@ -203,7 +203,7 @@ func (s *Scraper) RetryFailed(urls []*url.URL) int {
 		if len(wanted) > 0 {
 			key := ""
 			if entry.WebURL != nil {
-				key = utils.CanonicalizeURL(entry.WebURL).String()
+				key = utils_urls.Canonicalize(entry.WebURL).String()
 			}
 			if !wanted[key] {
 				continue

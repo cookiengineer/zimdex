@@ -1,19 +1,16 @@
 package zimfs
 
-import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"net/url"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
-
-	"github.com/cookiengineer/zimdex/internal/filters"
-	"github.com/cookiengineer/zimdex/internal/utils"
-	"golang.org/x/net/html"
-)
+import "github.com/cookiengineer/zimdex/internal/filters"
+import utils_urls "github.com/cookiengineer/zimdex/internal/utils/urls"
+import "golang.org/x/net/html"
+import "bytes"
+import "encoding/json"
+import "fmt"
+import "net/url"
+import "os"
+import "path/filepath"
+import "strings"
+import "time"
 
 type QueueEntry struct {
 	WebURL       *url.URL         `json:"-"` // via Alias
@@ -34,9 +31,9 @@ type QueueEntry struct {
 func NewQueueEntry(web_url *url.URL, zim_url *url.URL, typ QueueEntryType, referrer *url.URL) *QueueEntry {
 
 	entry := QueueEntry{
-		WebURL:       utils.CanonicalizeURL(web_url),
+		WebURL:       utils_urls.Canonicalize(web_url),
 		ZimURL:       zim_url,
-		MimeType:     utils.GetMimeType(web_url),
+		MimeType:     utils_urls.GetMimeType(web_url),
 		Type:         typ,
 		Status:       QueueEntryStatusPending,
 		Size:         0,
