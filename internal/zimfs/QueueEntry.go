@@ -1,13 +1,18 @@
 package zimfs
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/cookiengineer/zimdex/internal/filters"
 	"github.com/cookiengineer/zimdex/internal/utils"
+	"golang.org/x/net/html"
 )
 
 type QueueEntry struct {
@@ -21,6 +26,9 @@ type QueueEntry struct {
 	LastModified time.Time        `json:"-"` // via Alias
 	StatusCode   int              `json:"status_code"`
 	Retries      int              `json:"retries"`
+
+	folder  string           `json:"-"`
+	filters []filters.Filter `json:"-"`
 }
 
 func NewQueueEntry(web_url *url.URL, zim_url *url.URL, typ QueueEntryType, referrer *url.URL) *QueueEntry {
@@ -74,6 +82,64 @@ func (entry *QueueEntry) Path() (string) {
 	} else {
 		return ""
 	}
+
+}
+
+func (entry *QueueEntry) HTML() []byte {
+
+	data, err := os.ReadFile(filepath.Join(entry.folder, entry.Path()))
+
+	if err != nil {
+		return nil
+	}
+
+	return filters.ApplyFilterHTML(entry.filters, entry.WebURL, data)
+
+}
+
+func (entry *QueueEntry) Title() string {
+
+	if entry.Type != QueueEntryTypePage {
+
+		ext := filepath.Ext(entry.Path())
+
+		if ext != "" {
+			return filepath.Base(entry.Path()[:len(entry.Path())-len(ext)])
+		}
+
+		return filepath.Base(entry.Path())
+
+	}
+
+	data, err := os.ReadFile(filepath.Join(entry.folder, entry.Path()))
+
+	if err != nil {
+		return entry.Path()
+	}
+
+	doc, err := html.Parse(bytes.NewReader(data))
+
+	if err != nil {
+		return entry.Path()
+	}
+
+	if title := findHTMLNode(doc, "title"); title != "" {
+		return title
+	}
+
+	return entry.Path()
+
+}
+
+func (entry *QueueEntry) filterQueueEntryURL(raw_url *url.URL, html_body []byte, referrer *url.URL) (new_url, download_url *url.URL) {
+
+	filtered := filters.ApplyFilterURL(entry.filters, raw_url, html_body, referrer)
+
+	if filtered == nil {
+		return nil, nil
+	}
+
+	return filters.ApplyRewriteURL(entry.filters, filtered)
 
 }
 

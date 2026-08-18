@@ -68,7 +68,7 @@ func TestQueueEntryPathFallback(t *testing.T) {
 func TestQueueAddAndDedup(t *testing.T) {
 	dir := t.TempDir()
 	startURL, _ := url.Parse("https://example.com/")
-	q := zimfs.NewQueue(dir, startURL)
+	q := zimfs.NewQueue(dir, startURL, nil)
 
 	entryURL, _ := url.Parse("https://example.com/")
 	added := q.Add(*zimfs.NewQueueEntry(entryURL, entryURL, zimfs.QueueEntryTypePage, startURL))
@@ -85,7 +85,7 @@ func TestQueueAddAndDedup(t *testing.T) {
 func TestQueueAddIfNew(t *testing.T) {
 	dir := t.TempDir()
 	startURL, _ := url.Parse("https://example.com/")
-	q := zimfs.NewQueue(dir, startURL)
+	q := zimfs.NewQueue(dir, startURL, nil)
 
 	pageURL, _ := url.Parse("https://example.com/page1")
 	if q.Has(pageURL) {
@@ -108,7 +108,7 @@ func TestQueueAddIfNew(t *testing.T) {
 func TestQueueGet(t *testing.T) {
 	dir := t.TempDir()
 	startURL, _ := url.Parse("https://example.com/")
-	q := zimfs.NewQueue(dir, startURL)
+	q := zimfs.NewQueue(dir, startURL, nil)
 
 	pageURL, _ := url.Parse("https://example.com/page")
 	q.Add(*zimfs.NewQueueEntry(pageURL, pageURL, zimfs.QueueEntryTypePage, startURL))
@@ -139,7 +139,7 @@ func TestQueueGet(t *testing.T) {
 func TestQueueStats(t *testing.T) {
 	dir := t.TempDir()
 	startURL, _ := url.Parse("https://example.com/")
-	q := zimfs.NewQueue(dir, startURL)
+	q := zimfs.NewQueue(dir, startURL, nil)
 
 	p1, _ := url.Parse("https://example.com/p1")
 	p2, _ := url.Parse("https://example.com/p2")
@@ -164,7 +164,7 @@ func TestQueueSaveLoad(t *testing.T) {
 	dir := t.TempDir()
 	startURL, _ := url.Parse("https://example.com/")
 
-	q := zimfs.NewQueue(dir, startURL)
+	q := zimfs.NewQueue(dir, startURL, nil)
 	pageURL, _ := url.Parse("https://example.com/page1")
 	entry := zimfs.NewQueueEntry(pageURL, pageURL, zimfs.QueueEntryTypePage, startURL)
 	q.Add(*entry)
@@ -172,7 +172,7 @@ func TestQueueSaveLoad(t *testing.T) {
 	q.Set(*entry)
 	q.Write()
 
-	q2 := zimfs.NewQueue(dir, startURL)
+	q2 := zimfs.NewQueue(dir, startURL, nil)
 	if q2.Count(zimfs.QueueEntryStatusDownloaded) != 1 {
 		t.Errorf("expected 1 downloaded, got %d", q2.Count(zimfs.QueueEntryStatusDownloaded))
 	}
@@ -181,7 +181,7 @@ func TestQueueSaveLoad(t *testing.T) {
 func TestQueueConcurrent(t *testing.T) {
 	dir := t.TempDir()
 	startURL, _ := url.Parse("https://example.com/")
-	q := zimfs.NewQueue(dir, startURL)
+	q := zimfs.NewQueue(dir, startURL, nil)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {

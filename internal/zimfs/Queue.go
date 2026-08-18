@@ -9,26 +9,30 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cookiengineer/zimdex/internal/filters"
 	"github.com/cookiengineer/zimdex/internal/utils"
 )
 
 type Queue struct {
-	Folder    string         `json:"folder"`
-	StartDate time.Time      `json:"-"`
-	StartURL  *url.URL       `json:"-"`
-	info      QueueInfo      `json:"-"`
-	Status    QueueStatus    `json:"status"`
-	entries   []*QueueEntry  `json:"-"`
-	urls      map[string]int `json:"-"`
-	mutex     sync.RWMutex   `json:"-"`
+	Folder    string           `json:"folder"`
+	StartDate time.Time        `json:"-"`
+	StartURL  *url.URL         `json:"-"`
+	Filters   []filters.Filter `json:"-"`
+	info      QueueInfo        `json:"-"`
+	Status    QueueStatus      `json:"status"`
+	entries   []*QueueEntry    `json:"-"`
+	urls      map[string]int   `json:"-"`
+	mutex     sync.RWMutex     `json:"-"`
 }
 
-func NewQueue(folder string, start_url *url.URL) *Queue {
+func NewQueue(folder string, start_url *url.URL, filter_names []string) *Queue {
 
 	queue := &Queue{
 		Folder:    folder,
 		StartDate: time.Now(),
 		StartURL:  start_url,
+		Filters:   filters.Get(filter_names),
 		entries:   make([]*QueueEntry, 0),
 		urls:      make(map[string]int),
 		mutex:     sync.RWMutex{},
@@ -116,6 +120,9 @@ func (queue *Queue) UnmarshalJSON(data []byte) error {
 }
 
 func (queue *Queue) Add(entry QueueEntry) bool {
+
+	entry.folder = queue.Folder
+	entry.filters = queue.Filters
 
 	canonicalized := utils.CanonicalizeURL(entry.WebURL)
 
@@ -262,6 +269,30 @@ func (queue *Queue) Query(status QueueEntryStatus) []QueueEntry {
 
 }
 
+func (queue *Queue) EnqueueURL(raw_url *url.URL, html_body []byte, referrer *url.URL, typ QueueEntryType) bool {
+
+	entry := NewQueueEntry(raw_url, nil, typ, referrer)
+	entry.folder = queue.Folder
+	entry.filters = queue.Filters
+
+	new_url, download_url := entry.filterQueueEntryURL(raw_url, html_body, referrer)
+
+	if new_url == nil {
+		return false
+	}
+
+	if download_url == nil {
+		download_url = new_url
+	}
+
+	entry.WebURL = utils.CanonicalizeURL(download_url)
+	entry.ZimURL = new_url
+	entry.MimeType = utils.GetMimeType(download_url)
+
+	return queue.Add(*entry)
+
+}
+
 func (queue *Queue) Read() error {
 
 	queue.mutex.Lock()
@@ -288,6 +319,9 @@ func (queue *Queue) Read() error {
 			queue.urls      = make(map[string]int)
 
 			for index, entry := range queue.entries {
+
+				entry.folder = queue.Folder
+				entry.filters = queue.Filters
 
 				canonicalized := utils.CanonicalizeURL(entry.WebURL)
 
@@ -342,6 +376,9 @@ func (queue *Queue) Set(entry QueueEntry) bool {
 
 	queue.mutex.Lock()
 	defer queue.mutex.Unlock()
+
+	entry.folder = queue.Folder
+	entry.filters = queue.Filters
 
 	canonicalized := utils.CanonicalizeURL(entry.WebURL)
 

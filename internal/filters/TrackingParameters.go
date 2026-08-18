@@ -55,15 +55,15 @@ func (filter *TrackingParameters) Description() string {
 	return "Strip tracking parameters (utm_*, fbclid, gclid, etc.)"
 }
 
-func (filter *TrackingParameters) Detect(_ []byte, _ *url.URL) bool {
+func (filter *TrackingParameters) Detect(_ *url.URL, _ []byte) bool {
 	return true
 }
 
-func (filter *TrackingParameters) FilterURL(link *url.URL) *url.URL {
+func (filter *TrackingParameters) FilterURL(page_url *url.URL) *url.URL {
 
-	if link != nil {
+	if page_url != nil {
 
-		clone := *link
+		clone := *page_url
 		FilterTrackingParameters(&clone)
 		return &clone
 
@@ -73,15 +73,15 @@ func (filter *TrackingParameters) FilterURL(link *url.URL) *url.URL {
 
 }
 
-func (filter *TrackingParameters) FilterHTML(html []byte, self *url.URL) []byte {
+func (filter *TrackingParameters) FilterHTML(page_url *url.URL, html []byte) []byte {
 	return html
 }
 
-func FilterTrackingParameters(link *url.URL) {
+func FilterTrackingParameters(page_url *url.URL) {
 
-	if link != nil && link.RawQuery != "" {
+	if page_url != nil && page_url.RawQuery != "" {
 
-		values  := link.Query()
+		values  := page_url.Query()
 		changed := false
 
 		for key := range values {
@@ -96,8 +96,9 @@ func FilterTrackingParameters(link *url.URL) {
 		}
 
 		if changed == true {
-			link.RawQuery = values.Encode()
+			page_url.RawQuery = values.Encode()
 		}
+
 	}
 
 }

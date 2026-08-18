@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cookiengineer/zimdex/internal/archive/filters"
 	"github.com/cookiengineer/zimdex/internal/utils"
 	"github.com/cookiengineer/zimdex/internal/zimfs"
 )
@@ -56,7 +55,7 @@ func NewScraper(options ScraperOptions) (*Scraper, error) {
 		Options:    options,
 		StartURL:   starturl,
 		status:     "idle",
-		queue:      zimfs.NewQueue(options.Folder, starturl),
+		queue:      zimfs.NewQueue(options.Folder, starturl, options.Filters),
 		downloader: NewDownloader(options.Folder, options.IgnoreInsecureSSL),
 	}
 
@@ -64,31 +63,8 @@ func NewScraper(options ScraperOptions) (*Scraper, error) {
 		scraper.log("Reset failed/stale entries for retry")
 	}
 
-	seedFilters := filters.Enabled(options.Filters)
-	filterSeed := func(rawURL *url.URL) (newURL, downloadURL *url.URL) {
-		for _, f := range seedFilters {
-			if f.Detect(nil, rawURL) {
-				filtered := f.FilterURL(rawURL)
-				if filtered == nil {
-					return nil, nil
-				}
-				rawURL = filtered
-			}
-		}
-		return applyPathRewrite(rawURL, nil, seedFilters)
-	}
-
-	enqueueSeed := func(newURL, downloadURL *url.URL) {
-		if newURL == nil {
-			return
-		}
-
-		dl := downloadURL
-		if dl == nil {
-			dl = newURL
-		}
-
-		scraper.queue.Add(*zimfs.NewQueueEntry(dl, newURL, zimfs.QueueEntryTypePage, starturl))
+	enqueueSeed := func(rawURL *url.URL) {
+		scraper.queue.EnqueueURL(rawURL, nil, rawURL, zimfs.QueueEntryTypePage)
 	}
 
 	// TODO: This should be Downloader.FetchRobots()
@@ -105,7 +81,7 @@ func NewScraper(options ScraperOptions) (*Scraper, error) {
 			if len(sitemaps) > 0 {
 				seeds := FetchSitemaps(starturl.Hostname(), sitemaps, scraper.downloader.client)
 				for _, seedURL := range seeds {
-					enqueueSeed(filterSeed(seedURL))
+					enqueueSeed(seedURL)
 				}
 				scraper.log("sitemap: %d seed URLs from %d sitemaps", len(seeds), len(sitemaps))
 			}
@@ -113,7 +89,7 @@ func NewScraper(options ScraperOptions) (*Scraper, error) {
 	} else {
 		seeds := FetchDefaultSitemap(starturl.Hostname(), scraper.downloader.client)
 		for _, seedURL := range seeds {
-			enqueueSeed(filterSeed(seedURL))
+			enqueueSeed(seedURL)
 		}
 		if len(seeds) > 0 {
 			scraper.log("sitemap: %d seed URLs", len(seeds))
@@ -121,7 +97,7 @@ func NewScraper(options ScraperOptions) (*Scraper, error) {
 	}
 
 	canonStart := utils.CanonicalizeURL(starturl)
-	enqueueSeed(filterSeed(canonStart))
+	enqueueSeed(canonStart)
 
 	return scraper, nil
 }
@@ -205,7 +181,8 @@ func (s *Scraper) Queue() *zimfs.Queue {
 }
 
 func (s *Scraper) BuildZIM() (string, error) {
-	return BuildZIM(s.Options.Folder, s.queue, s.Options.Filters)
+	builder := zimfs.NewBuilder(s.Options.Folder)
+	return builder.Build(s.queue)
 }
 
 func (s *Scraper) RetryFailed(urls []*url.URL) int {
@@ -324,10 +301,6 @@ func (s *Scraper) RecentActivity() []ActivityEntry {
 	return result
 }
 
-func applyPathRewrite(filteredURL *url.URL, pageURL *url.URL, activeFilters []filters.Filter) (newURL, downloadURL *url.URL) {
-	return filters.ApplyURLRewriter(filteredURL, activeFilters)
-}
-
 func (s *Scraper) extractAndEnqueue(entry *zimfs.QueueEntry) {
 	cachePath := filepath.Join(s.Options.Folder, entry.Path())
 	data, err := os.ReadFile(cachePath)
@@ -337,8 +310,6 @@ func (s *Scraper) extractAndEnqueue(entry *zimfs.QueueEntry) {
 	}
 
 	pageURL := entry.WebURL
-
-	activeFilters := filters.Enabled(s.Options.Filters)
 
 	ext, err := NewExtractor(pageURL, s.StartURL.Hostname(), pageURL)
 	if entry.Type == zimfs.QueueEntryTypeExternalPage {
@@ -351,25 +322,10 @@ func (s *Scraper) extractAndEnqueue(entry *zimfs.QueueEntry) {
 	urls := ext.Extract(data)
 
 	for _, u := range urls {
-		filtered := filters.ApplyURLFilters(u.URL, data, pageURL, activeFilters)
-		if filtered == nil {
+		if s.robots != nil && !s.robots.IsAllowed(u.URL.Path) {
 			continue
 		}
 
-		if s.robots != nil && !s.robots.IsAllowed(filtered.Path) {
-			continue
-		}
-
-		newURL, downloadURL := applyPathRewrite(filtered, pageURL, activeFilters)
-		if newURL == nil {
-			continue
-		}
-
-		dl := downloadURL
-		if dl == nil {
-			dl = newURL
-		}
-
-		s.queue.Add(*zimfs.NewQueueEntry(dl, newURL, u.EntryType, pageURL))
+		s.queue.EnqueueURL(u.URL, data, pageURL, u.EntryType)
 	}
 }

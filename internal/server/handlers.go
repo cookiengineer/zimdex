@@ -13,7 +13,7 @@ import (
 	"sync"
 
 	"github.com/cookiengineer/zimdex/internal/archive"
-	"github.com/cookiengineer/zimdex/internal/archive/filters"
+	"github.com/cookiengineer/zimdex/internal/filters"
 	"github.com/cookiengineer/zimdex/internal/render"
 	"github.com/cookiengineer/zimdex/internal/search"
 	"github.com/cookiengineer/zimdex/internal/zimfs"
