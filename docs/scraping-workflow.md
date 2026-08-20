@@ -41,48 +41,47 @@ A URL goes through these transformations from discovery to filesystem storage:
     │
     ▼
  2. CanonicalizeURL()     — lowercase host, strip fragment, strip default ports,
-    │                       filter tracking params (via filters.FilterTrackingParams)
+    │                       filter tracking params (via filters.FilterTrackers)
     ▼
- 3. FilterURL()           — mediawiki: returns "" to skip action/namespace pages,
-    │                       tracking: strips utm_*/fbclid/gclid/etc.
+ 3. FilterURL()           — mediawiki: returns nil to skip action/namespace pages,
+    │                       phpbb: skips memberlist/posting/ucp/download/post
+    │                       permalinks; tracking: strips utm_*/fbclid/gclid/etc.
     ▼                       script: no-op (returns same URL)
  4. RewriteURL()          — mediawiki: transforms index.php?title=X → X.html
-    │   (newURL,           as canonical URL, keeps original as downloadURL.
-    │    downloadURL)       .html → index.php?title=X reverse mapping for
-    │                       extracted URLs that were already rewritten in HTML.
+    │   (zimURL,           as canonical path, keeps original as the download URL.
+    │    webURL)            .html → index.php?title=X reverse mapping for
+    │                       URLs that were already rewritten in HTML.
     ▼
- 5. URLToPath(newURL)     — produces filesystem path and ZIM path
+ 5. QueueEntry.Path()     — derives the filesystem cache path and ZIM path
     │   (hostname,            ? and & encoded as %3F/%26 for filesystem safety
     │    localPath,           ZIM path keeps raw ? and &
     │    zimPath)
     ▼
  6. QueueEntry
-    ├── URL:         newURL (canonical, used for dedup via urlIndex map)
-    ├── DownloadURL: downloadURL (actual URL to fetch from server, if different)
-    ├── Path:        localPath (filesystem cache location)
-    ├── ZimPath:     zimPath (entry path in ZIM file)
+    ├── WebURL:      webURL (actual URL to fetch; also the dedup key)
+    ├── ZimURL:      zimURL (clean path for filesystem/ZIM; may be nil)
+    ├── MimeType:    resolved from webURL extension or response header
      └── Status:      pending (or downloaded if already cached on disk)
 
- 7. Downloader uses DownloadURL (or URL if DownloadURL empty) for HTTP GET
+ 7. Downloader uses entry.WebURL for HTTP GET
 
- 8. Response saved to dataDir/Path (filesystem cache)
+ 8. Response saved to dataDir/entry.Path() (filesystem cache)
 
  9. Builder reads all Status=downloaded entries from cache:
     for each entry:
-        data = os.ReadFile(dataDir/entry.Path)
-        zim.NewBytesItem(entry.ZimPath, entry.MimeType, title, data)
+        html = entry.HTML()  (applies FilterHTML at build time only)
+        zim.NewBytesItem(entry.Path(), entry.MimeType, title, html)
 ```
 
-### Key rule: DownloadURL vs URL
+### Key rule: WebURL vs ZimURL
 
 | Field | Purpose | Example |
 |---|---|---|
-| `URL` | Canonical identity, dedup key, displayed in UI | `https://buggedplanet.info/Main_Page.html` |
-| `DownloadURL` | Actual HTTP request URL | `https://buggedplanet.info/index.php?title=Main_Page` |
-| `Path` | Filesystem cache path | `buggedplanet.info/Main_Page.html` |
-| `ZimPath` | Entry path in ZIM file | `buggedplanet.info/Main_Page.html` |
+| `WebURL` | Actual HTTP request URL, dedup key | `https://buggedplanet.info/index.php?title=Main_Page` |
+| `ZimURL` | Clean path for filesystem/ZIM storage | `https://buggedplanet.info/Main_Page.html` |
+| `Path()` | Filesystem cache + ZIM path (uses ZimURL if set, else WebURL) | `buggedplanet.info/Main_Page.html` |
 
-The downloader MUST use `DownloadURL` if set, otherwise `URL`. The `URL` field is NEVER used directly for HTTP requests when `DownloadURL` differs — this was bug #1.
+The downloader MUST use `WebURL` for HTTP requests. `ZimURL` is only a storage-path alias produced by `RewriteURL` and is never fetched directly — this was bug #1.
 
 ---
 
@@ -160,8 +159,8 @@ worker(ctx, entryType):
          if PendingCount == 0 AND DownloadingCount == 0:
            set status = "complete", save queue, return
          sleep 500ms, continue
-    5. downloader.Download(ctx, entry)
-       - Uses DownloadURL if set, otherwise URL
+     5. downloader.Download(ctx, entry)
+       - Uses entry.WebURL for the HTTP GET
        - On success: sets entry.Status = Downloaded, saves to cache
        - On 3xx redirect: returns ErrRedirect → worker enqueues redirect URL
        - On retryable error: returns ErrRetry → worker sets Status = Pending
@@ -177,11 +176,10 @@ worker(ctx, entryType):
               - External host pages: NewExtractorAssetsOnly (FollowPages=false)
                 → extracts assets only (no page link following)
            c. For each URL:
-              - FilterURL (skip if "", keep otherwise)
-              - RewriteURL (get newURL + downloadURL)
-              - robots.IsAllowed check
-              - URLToPath(newURL) → localPath, zimPath
-              - queue.Add(entry) — dedup via urlIndex
+               - FilterURL (skip if nil, keep otherwise)
+               - RewriteURL (get zimURL + webURL)
+               - robots.IsAllowed check
+               - queue.EnqueueURL(rawURL, html, referrer, type) — dedup via urlIndex
     9. queue.Save() — atomic write to JSON
 ```
 
@@ -219,10 +217,14 @@ Build phase:
 
 ```
 filters/
-├── filter.go      — Filter interface, URLRewriter interface, Registry
-├── tracking.go    — TrackingFilter (strips utm_*, fbclid, gclid, ref, etc.)
-├── mediawiki.go   — MediaWikiFilter (detects MW pages, rewrites paths, patches HTML)
-└── script.go      — ScriptFilter (strips <script> tags from HTML)
+├── Filter.go         — Filter interface, URLRewriter interface, Registry
+├── ApplyFilterURL.go — runs Detect + FilterURL across enabled filters
+├── ApplyRewriteURL.go— runs RewriteURL across enabled filters
+├── MediaWiki.go      — MediaWikiFilter (detects MW pages, rewrites paths, patches HTML)
+├── PHPBB.go          — PHPBBFilter (detects phpBB pages, rewrites view*/search paths)
+├── Scripts.go        — ScriptFilter (strips <script> tags from HTML)
+├── Trackers.go       — TrackingFilter (strips utm_*, fbclid, gclid, ref, etc.)
+└── Sanitizer.go      — HTML node sanitizer used by Scripts/Trackers
 ```
 
 ### Filter Interface
@@ -231,9 +233,9 @@ filters/
 type Filter interface {
     Name() string
     Description() string
-    Detect(html []byte, pageURL string) bool   // does filter apply?
-    FilterURL(rawURL string) string            // returns "" to skip, or filtered URL
-    FilterHTML(html []byte, pageURL string) []byte  // transform cached HTML
+    Detect(*url.URL, []byte) bool               // does filter apply?
+    FilterURL(*url.URL) *url.URL                // returns nil to skip, or filtered URL
+    FilterHTML(*url.URL, []byte) []byte         // transform cached HTML
 }
 ```
 
@@ -241,7 +243,7 @@ type Filter interface {
 
 ```go
 type URLRewriter interface {
-    RewriteURL(rawURL string) (newURL, downloadURL string)
+    RewriteURL(*url.URL) (*url.URL, *url.URL)   // returns (zimURL, webURL)
 }
 ```
 
@@ -250,41 +252,56 @@ type URLRewriter interface {
 ```
 For each extracted URL:
   1. FilterURL(rawURL)          — all enabled filters
-     Returns "" → skip entirely
-     Returns url → continue
+     Returns nil → skip entirely
+     Returns url  → continue (e.g. sid stripped)
 
   2. RewriteURL(filteredURL)    — all enabled filters that implement URLRewriter
-     Returns (newURL, downloadURL)
-     newURL = canonical URL for dedup + path
-     downloadURL = actual URL for HTTP request (defaults to newURL)
+     Returns (zimURL, webURL)
+     zimURL = clean path for filesystem/ZIM storage
+     webURL = actual URL for HTTP request (defaults to filteredURL if nil)
 
   3. robots.IsAllowed(url)
-  4. URLToPath(newURL) → localPath, zimPath
-  5. queue.Add(QueueEntry{URL: newURL, DownloadURL: downloadURL, ...})
+  4. queue.EnqueueURL(rawURL, html, referrer, type)
+     → QueueEntry{WebURL: webURL, ZimURL: zimURL, ...}
 ```
 
 ### Filter execution during seed/sitemap
 
 ```
 For each seed URL:
-  1. Detect(nil, seedURL)       — content-based filters use URL patterns
-  2. FilterURL(seedURL)         — skip if ""
+  1. queue.EnqueueURL(seedURL, nil, seedURL, Page)
+  2. FilterURL(seedURL)         — skip if nil
   3. RewriteURL(filteredURL)    — transform path
-  4. URLToPath(newURL)
-  5. queue.Add(...)
+  4. queue.Add(entry)
 ```
 
 ### MediaWiki filter — full transformation table
 
-| Input URL | FilterURL | newURL | downloadURL | HTML rewrite |
+| Input URL | FilterURL | zimURL | webURL | HTML rewrite |
 |---|---|---|---|---|
 | `index.php?title=Main_Page` | keep | `Main_Page.html` | `index.php?title=Main_Page` | `href="/Main_Page.html"` |
 | `index.php?title=Main_Page&oldid=123` | `index.php?title=Main_Page` | `Main_Page.html` | `index.php?title=Main_Page` | `href="/Main_Page.html"` |
-| `index.php?title=Talk:Main_Page` | `""` (skip) | — | — | — |
-| `index.php?title=Main_Page&action=edit` | `""` (skip) | — | — | — |
+| `index.php?title=Talk:Main_Page` | `nil` (skip) | — | — | — |
+| `index.php?title=Main_Page&action=edit` | `nil` (skip) | — | — | — |
 | `Main_Page.html` (from HTML) | keep | `Main_Page.html` | `index.php?title=Main_Page` | — |
 | `images/0/02/file.pdf` | keep | same | same | — |
 | `load.php?lang=en&modules=...` | keep | same | same | — |
+
+### PHPBB filter — full transformation table
+
+| Input URL | FilterURL | zimURL | webURL | HTML rewrite |
+|---|---|---|---|---|
+| `viewforum.php?f=1` | keep | `forum/1.html` | `viewforum.php?f=1` | `href="/forum/1.html"` |
+| `viewforum.php?f=1&start=50` | keep | `forum/1-50.html` | `viewforum.php?f=1&start=50` | `href="/forum/1-50.html"` |
+| `viewtopic.php?t=21&sid=...` | `viewtopic.php?t=21` | `topic/21.html` | `viewtopic.php?t=21` | `href="/topic/21.html"` |
+| `viewtopic.php?t=21&start=145` | keep | `topic/21-145.html` | `viewtopic.php?t=21&start=145` | `href="/topic/21-145.html"` |
+| `viewtopic.php?p=201#p201` | `nil` (skip) | — | — | `#p201` (on topic pages) |
+| `search.php?search_id=unanswered` | keep | `search/unanswered.html` | `search.php?search_id=unanswered` | `href="/search/unanswered.html"` |
+| `search.php?author_id=26&sr=posts` | keep | `search/author/26.html` | `search.php?author_id=26&sr=posts` | `href="/search/author/26.html"` |
+| `memberlist.php?mode=viewprofile&u=26` | `nil` (skip) | — | — | sid stripped |
+| `posting.php?mode=reply&t=21` | `nil` (skip) | — | — | sid stripped |
+| `download/file.php?id=12345` | `nil` (skip) | — | — | sid stripped |
+| `index.php` | keep (sid stripped) | same | same | `href="./index.php"` |
 
 ---
 
@@ -342,7 +359,7 @@ Note: Entries span both the primary host and any CDN/external hosts. All are bun
 
 ## Critical Design Rules
 
-1. **DownloadURL is authoritative for HTTP**: The downloader MUST use `entry.DownloadURL` if set, never `entry.URL`. `entry.URL` is the canonical identity for dedup only.
+1. **WebURL is authoritative for HTTP**: The downloader MUST use `entry.WebURL` for the HTTP GET, never `entry.ZimURL`. `ZimURL` is only a storage-path alias produced by `RewriteURL` and is never fetched directly.
 
 2. **Reset pending on retry**: After `ErrRetry`, the worker MUST set `entry.Status = StatusPending` so `PopPending` can pick it up again.
 
@@ -354,7 +371,7 @@ Note: Entries span both the primary host and any CDN/external hosts. All are bun
 
 6. **RewriteURL after FilterURL**: FilterURL decides keep/skip on the ORIGINAL URL. RewriteURL transforms the kept URL for path generation. Both run on every kept URL during extraction. FilterHTML runs during build, not extraction.
 
-7. **Seed URLs need content-based filter detection too**: `filterSeed` must pass the URL to `Detect()` so content-based filters (MediaWiki) can recognize URL patterns without HTML.
+7. **Seed URLs need URL-based detection too**: `queue.EnqueueURL` passes the seed URL as the referrer to `ApplyFilterURL`, so content-based filters (MediaWiki, PHPBB) fall back to URL patterns when no HTML is available.
 
 8. **Queue stats must be consistent**: `PopPending` adjusts stats (pending--, downloading++). `Downloader` sets entry status directly. `RecalcStats()` reconciles.
 
