@@ -222,6 +222,7 @@ filters/
 ├── ApplyRewriteURL.go— runs RewriteURL across enabled filters
 ├── MediaWiki.go      — MediaWikiFilter (detects MW pages, rewrites paths, patches HTML)
 ├── PHPBB.go          — PHPBBFilter (detects phpBB pages, rewrites view*/search paths)
+├── VBulletin.go      — VBulletinFilter (detects vB pages, rewrites forum/thread paths)
 ├── Scripts.go        — ScriptFilter (strips <script> tags from HTML)
 ├── Trackers.go       — TrackingFilter (strips utm_*, fbclid, gclid, ref, etc.)
 └── Sanitizer.go      — HTML node sanitizer used by Scripts/Trackers
@@ -302,6 +303,24 @@ For each seed URL:
 | `posting.php?mode=reply&t=21` | `nil` (skip) | — | — | sid stripped |
 | `download/file.php?id=12345` | `nil` (skip) | — | — | sid stripped |
 | `index.php` | keep (sid stripped) | same | same | `href="./index.php"` |
+
+### VBulletin filter — full transformation table
+
+| Input URL | FilterURL | zimURL | webURL | HTML rewrite |
+|---|---|---|---|---|
+| `forumdisplay.php?f=1058` | keep (s stripped) | `forum/1058.html` | `forumdisplay.php?f=1058` | `href="/forum/1058.html"` |
+| `forumdisplay.php?f=1058&page=2` | keep | `forum/1058-2.html` | `forumdisplay.php?f=1058&page=2` | `href="/forum/1058-2.html"` |
+| `showthread.php?t=6263615` | keep (s stripped) | `thread/6263615.html` | `showthread.php?t=6263615` | `href="/thread/6263615.html"` |
+| `showthread.php?t=6263615&page=2` | keep | `thread/6263615-2.html` | `showthread.php?t=6263615&page=2` | `href="/thread/6263615-2.html"` |
+| `/f1058/` (friendly forum) | keep | `forum/1058.html` | `/f1058/` | `href="/forum/1058.html"` |
+| `/f1058/i2.html` (friendly forum page) | keep | `forum/1058-2.html` | `/f1058/i2.html` | `href="/forum/1058-2.html"` |
+| `/f1058/slug-6263615.html` (friendly thread) | keep | `thread/6263615.html` | `/f1058/slug-6263615.html` | `href="/thread/6263615.html"` |
+| `/f1058/slug-6263615-2.html` (friendly thread page) | keep | `thread/6263615-2.html` | `/f1058/slug-6263615-2.html` | `href="/thread/6263615-2.html"` |
+| `showthread.php?p=44234539#post44234539` | `nil` (skip) | — | — | `#post44234539` (on thread pages) |
+| `member.php?u=26` | `nil` (skip) | — | — | s stripped |
+| `search.php?...` | `nil` (skip) | — | — | s stripped |
+| `/users/1779045/` (friendly profile) | `nil` (skip) | — | — | — |
+| `/attachments/f1058/...` | `nil` (skip) | — | — | — |
 
 ---
 
