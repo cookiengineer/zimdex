@@ -29,7 +29,6 @@ This roadmap tracks all implementation tasks for ZIMdex, organized by phase. Eac
   - `server/Dispatch.go`: Deleted (replaced by `internal/server/`)
   - `server/DispatchRoutes.go`: Deleted (replaced by `internal/server/`)
   - `server/routes/Index.go`: Deleted (replaced by `internal/server/`)
-  - `structs/Console.go`: No git-evac imports, kept as-is
 
 - [x] **0.1.3** — Verify compilation
   - `CGO_ENABLED=0 go build ./...` passes

@@ -70,9 +70,6 @@ zimdex/
 │   │   └── middleware.go            # CSP headers, logging, panic recovery
 │   └── zimfs/                       # ZIM file management
 │       └── manager.go               # Scan directory for .zim files, open/close/cache archives
-├── structs/                         # Shared utility types
-│   ├── Console.go                   # Thread-safe colorized logging utility (kept from existing)
-│   └── ConsoleMessage.go            # Structured log message with caller info (kept from existing)
 ├── web/
 │   └── templates/                   # Go html/template files
 │       ├── index.html               # Search view: search bar, results, autocomplete
