@@ -274,7 +274,7 @@ func (queue *Queue) EnqueueURL(raw_url *url.URL, html_body []byte, referrer *url
 
 	new_url, download_url := entry.filterQueueEntryURL(raw_url, html_body, referrer)
 
-	if new_url == nil {
+	if new_url == nil && download_url == nil {
 		return false
 	}
 

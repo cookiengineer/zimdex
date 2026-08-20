@@ -82,6 +82,10 @@ func (filter *VBulletin) Description() string {
 	return "Filter vBulletin session links and rewrite legacy and friendly URLs to clean paths"
 }
 
+func (filter *VBulletin) IsDefault() bool {
+	return false
+}
+
 func (filter *VBulletin) Detect(page_url *url.URL, content []byte) bool {
 
 	if len(content) > 0 {

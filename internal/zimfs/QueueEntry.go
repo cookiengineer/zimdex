@@ -144,6 +144,24 @@ func (entry QueueEntry) MarshalJSON() ([]byte, error) {
 
 	type Alias QueueEntry
 
+	web_url := ""
+
+	if entry.WebURL != nil {
+		web_url = entry.WebURL.String()
+	}
+
+	zim_url := ""
+
+	if entry.ZimURL != nil {
+		zim_url = entry.ZimURL.String()
+	}
+
+	referrer := ""
+
+	if entry.Referrer != nil {
+		referrer = entry.Referrer.String()
+	}
+
 	return json.Marshal(&struct {
 		WebURL       string `json:"web_url"`
 		ZimURL       string `json:"zim_url"`
@@ -151,9 +169,9 @@ func (entry QueueEntry) MarshalJSON() ([]byte, error) {
 		LastModified string `json:"last_modified"`
 		*Alias
 	}{
-		WebURL:       entry.WebURL.String(),
-		ZimURL:       entry.ZimURL.String(),
-		Referrer:     entry.Referrer.String(),
+		WebURL:       web_url,
+		ZimURL:       zim_url,
+		Referrer:     referrer,
 		LastModified: entry.LastModified.Format("2006-01-02T15:04:05Z"),
 		Alias:        (*Alias)(&entry),
 	})
@@ -178,28 +196,49 @@ func (entry *QueueEntry) UnmarshalJSON(data []byte) error {
 
 	if err0 == nil {
 
-		web_url,       err1 := url.Parse(tmp.WebURL)
-		zim_url,       err2 := url.Parse(tmp.ZimURL)
-		referrer,      err3 := url.Parse(tmp.Referrer)
+		if tmp.WebURL != "" {
+
+			web_url, err1 := url.Parse(tmp.WebURL)
+
+			if err1 == nil {
+				entry.WebURL = web_url
+			} else {
+				return err1
+			}
+
+		} else {
+			entry.WebURL = nil
+		}
+
+		if tmp.ZimURL != "" {
+
+			zim_url, err2 := url.Parse(tmp.ZimURL)
+
+			if err2 == nil {
+				entry.ZimURL = zim_url
+			} else {
+				return err2
+			}
+
+		} else {
+			entry.ZimURL = nil
+		}
+
+		if tmp.Referrer != "" {
+
+			referrer, err3 := url.Parse(tmp.Referrer)
+
+			if err3 == nil {
+				entry.Referrer = referrer
+			} else {
+				return err3
+			}
+
+		} else {
+			entry.Referrer = nil
+		}
+
 		last_modified, err4 := time.Parse("2006-01-02T15:04:05Z", tmp.LastModified)
-
-		if err1 == nil {
-			entry.WebURL = web_url
-		} else {
-			return err1
-		}
-
-		if err2 == nil {
-			entry.ZimURL = zim_url
-		} else {
-			return err2
-		}
-
-		if err3 == nil {
-			entry.Referrer = referrer
-		} else {
-			return err3
-		}
 
 		if err4 == nil {
 			entry.LastModified = last_modified

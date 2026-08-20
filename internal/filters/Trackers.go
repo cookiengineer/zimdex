@@ -55,6 +55,10 @@ func (filter *Trackers) Description() string {
 	return "Strip tracking parameters from URLs and tracking elements from HTML"
 }
 
+func (filter *Trackers) IsDefault() bool {
+	return true
+}
+
 func (filter *Trackers) Detect(_ *url.URL, _ []byte) bool {
 	return true
 }

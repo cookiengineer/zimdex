@@ -4,7 +4,7 @@ import "net/url"
 
 func ApplyFilterURL(filters []Filter, page_url *url.URL, html []byte, referrer *url.URL) *url.URL {
 
-	var result *url.URL
+	var result *url.URL = page_url
 
 	for _, filter := range filters {
 

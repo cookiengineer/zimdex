@@ -47,6 +47,10 @@ func (filter *MediaWiki) Description() string {
 	return "Filter MediaWiki version control links and rewrite URLs to clean paths"
 }
 
+func (filter *MediaWiki) IsDefault() bool {
+	return false
+}
+
 func (filter *MediaWiki) Detect(page_url *url.URL, content []byte) bool {
 
 	if len(content) > 0 {

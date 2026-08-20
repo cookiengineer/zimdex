@@ -34,6 +34,10 @@ func (filter *PHPBB) Description() string {
 	return "Filter phpBB session links and rewrite legacy URLs to clean paths"
 }
 
+func (filter *PHPBB) IsDefault() bool {
+	return false
+}
+
 func (filter *PHPBB) Detect(page_url *url.URL, content []byte) bool {
 
 	if len(content) > 0 {

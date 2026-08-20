@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/cookiengineer/gozim/archive/zim"
-	"github.com/cookiengineer/zimdex/internal/utils"
+	"github.com/cookiengineer/zimdex/internal/utils/urls"
 	"github.com/cookiengineer/zimdex/internal/zimfs"
 )
 
@@ -39,9 +39,9 @@ func TestCanonicalizeURL(t *testing.T) {
 		if err != nil {
 			t.Fatalf("url.Parse(%q): %v", tt.input, err)
 		}
-		result := utils.CanonicalizeURL(u)
+		result := urls.Canonicalize(u)
 		if result.String() != tt.expected {
-			t.Errorf("CanonicalizeURL(%q) = %q, want %q", tt.input, result.String(), tt.expected)
+			t.Errorf("Canonicalize(%q) = %q, want %q", tt.input, result.String(), tt.expected)
 		}
 	}
 }
@@ -745,5 +745,46 @@ func TestConcurrentThrottle(t *testing.T) {
 	delay := ts.CurrentDelay
 	if delay <= time.Second {
 		t.Errorf("expected delay > 1s after 10 errors (threshold=5, should have doubled), got %v", delay)
+	}
+}
+
+func TestDetectFiltersPHPBB(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<html><body id="phpbb" class="nojs notouch section-viewforum ltr"></body></html>`))
+	}))
+	defer server.Close()
+
+	startURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+
+	names, err := DetectFilters(startURL)
+	if err != nil {
+		t.Fatalf("DetectFilters: %v", err)
+	}
+
+	want := map[string]bool{"Trackers": true, "Scripts": true, "PHPBB": true, "MediaWiki": false, "VBulletin": false}
+	for _, name := range names {
+		if _, ok := want[name]; !ok {
+			t.Errorf("DetectFilters = %v, unexpected filter %q", names, name)
+		}
+		delete(want, name)
+	}
+
+	for name, expected := range want {
+		if expected {
+			t.Errorf("DetectFilters = %v, missing %q", names, name)
+		}
+	}
+}
+
+func TestDetectFiltersUnsupportedScheme(t *testing.T) {
+	startURL, _ := url.Parse("ftp://example.com/")
+
+	_, err := DetectFilters(startURL)
+	if err == nil {
+		t.Error("expected error for unsupported scheme")
 	}
 }

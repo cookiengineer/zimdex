@@ -79,20 +79,23 @@ section h2 { font-size: 1.2rem; color: var(--text-secondary); margin-bottom: 1re
     <div class="card">
       <div class="form-group">
         <label>Seed URL</label>
-        <input type="text" id="seed-url" placeholder="https://example.com/">
+        <div style="display:flex;gap:0.5rem">
+          <input type="text" id="seed-url" placeholder="https://example.com/" style="flex:1">
+          <button class="btn btn-secondary" id="detect-button" onclick="detectFilters()">Detect</button>
+        </div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Page Limit (0 = unlimited)</label><input type="number" id="page-limit" value="0" min="0"></div>
-        <div class="form-group"><label>Page Workers</label><input type="number" id="page-workers" value="2" min="1" max="16"></div>
-        <div class="form-group"><label>Asset Workers</label><input type="number" id="asset-workers" value="4" min="1" max="16"></div>
+        <div class="form-group"><label>Page Limit (0 = unlimited)</label><input type="number" id="page-limit" value="0" min="0" disabled></div>
+        <div class="form-group"><label>Page Workers</label><input type="number" id="page-workers" value="2" min="1" max="16" disabled></div>
+        <div class="form-group"><label>Asset Workers</label><input type="number" id="asset-workers" value="4" min="1" max="16" disabled></div>
       </div>
-      <div class="form-group"><label><input type="checkbox" id="respect-robots" checked> Respect robots.txt</label></div>
-      <div class="form-group"><label><input type="checkbox" id="insecure-ssl"> Ignore invalid SSL certificates</label></div>
+      <div class="form-group"><label><input type="checkbox" id="respect-robots" checked disabled> Respect robots.txt</label></div>
+      <div class="form-group"><label><input type="checkbox" id="insecure-ssl" disabled> Ignore invalid SSL certificates</label></div>
       <div class="form-group" id="filter-options">
         <label style="margin-bottom:0.5rem;font-weight:600">Filters</label>
         <div id="filter-checkboxes" style="color:var(--text-secondary);font-size:0.85rem">Loading...</div>
       </div>
-      <button class="btn btn-primary" onclick="startArchive()">Start Scraping</button>
+      <button class="btn btn-primary" id="start-button" onclick="startArchive()" disabled>Start Scraping</button>
     </div>
   </section>
 
@@ -108,6 +111,7 @@ section h2 { font-size: 1.2rem; color: var(--text-secondary); margin-bottom: 1re
 </main>
 <script>
 const activeJobs = {}
+let detected = false
 
 async function fetchJSON(url, opts) {
   const resp = await fetch(url, opts)
@@ -124,12 +128,60 @@ async function loadFilters() {
     }
     container.innerHTML = data.filters.map(f =>
       '<label style="display:block;margin-bottom:0.2rem">' +
-      '<input type="checkbox" value="' + escapeHTML(f.name) + '"' + (f.name === 'tracking_params' ? ' checked' : '') + '> ' +
+      '<input type="checkbox" value="' + escapeHTML(f.name) + '" data-default="' + (f.default ? 'true' : 'false') + '"' + (f.default ? ' checked' : '') + ' disabled> ' +
       escapeHTML(f.description) +
       '</label>'
     ).join('')
   } catch(e) {}
 }
+
+function setSettingsDisabled(disabled) {
+  const ids = ['page-limit', 'page-workers', 'asset-workers', 'respect-robots', 'insecure-ssl', 'start-button']
+  ids.forEach(id => {
+    const el = document.getElementById(id)
+    if (el) el.disabled = disabled
+  })
+  document.querySelectorAll('#filter-checkboxes input').forEach(cb => { cb.disabled = disabled })
+}
+
+async function detectFilters() {
+  const url = document.getElementById('seed-url').value.trim()
+  if (!url) { alert('Please enter a seed URL'); return }
+
+  const btn = document.getElementById('detect-button')
+  btn.disabled = true
+  btn.textContent = 'Detecting…'
+
+  try {
+    const data = await fetchJSON('/api/archive/detect', {
+      method: 'POST',
+      body: JSON.stringify({ url: url }),
+      headers: { 'Content-Type': 'application/json' }
+    })
+
+    const names = data.filters || []
+    document.querySelectorAll('#filter-checkboxes input').forEach(cb => {
+      cb.checked = names.indexOf(cb.value) >= 0
+    })
+
+    setSettingsDisabled(false)
+    detected = true
+  } catch(e) {
+    alert('Detection failed: ' + e.message)
+  } finally {
+    btn.disabled = false
+    btn.textContent = 'Detect'
+  }
+}
+
+document.getElementById('seed-url').addEventListener('input', () => {
+  if (!detected) return
+  detected = false
+  document.querySelectorAll('#filter-checkboxes input').forEach(cb => {
+    cb.checked = cb.dataset.default === 'true'
+  })
+  setSettingsDisabled(true)
+})
 
 async function loadArchives() {
   try {

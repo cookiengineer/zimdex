@@ -100,6 +100,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/filters", handlers.handleFilters)
 
 	s.mux.HandleFunc("POST /api/archive/start", handlers.handleArchiveStart)
+	s.mux.HandleFunc("POST /api/archive/detect", handlers.handleArchiveDetect)
 	s.mux.HandleFunc("GET /api/archive/{hostname}/status", handlers.handleArchiveStatus)
 	s.mux.HandleFunc("GET /api/archive/{hostname}/queue", handlers.handleArchiveQueue)
 	s.mux.HandleFunc("POST /api/archive/{hostname}/pause", handlers.handleArchivePause)

@@ -12,6 +12,10 @@ func (filter *Scripts) Description() string {
 	return "Sanitize HTML by removing scripts, embedded content, event handlers, comments, and empty elements"
 }
 
+func (filter *Scripts) IsDefault() bool {
+	return true
+}
+
 func (filter *Scripts) Detect(_ *url.URL, _ []byte) bool {
 	return true
 }

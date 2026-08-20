@@ -43,15 +43,60 @@ func (h *Handlers) handleFilters(w http.ResponseWriter, r *http.Request) {
 	type filterInfo struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
+		Default     bool   `json:"default"`
 	}
 	all := filters.Registry
 	infos := make([]filterInfo, len(all))
 	for i, f := range all {
-		infos[i] = filterInfo{Name: f.Name(), Description: f.Description()}
+		infos[i] = filterInfo{Name: f.Name(), Description: f.Description(), Default: f.IsDefault()}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"filters": infos,
+	})
+}
+
+func (h *Handlers) handleArchiveDetect(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		URL string `json:"url"`
+	}
+
+	data, _ := io.ReadAll(r.Body)
+	json.Unmarshal(data, &body)
+
+	if body.URL == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "url is required",
+		})
+		return
+	}
+
+	parsedURL, err := url.Parse(body.URL)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "invalid URL: " + err.Error(),
+		})
+		return
+	}
+
+	names, err := archive.DetectFilters(parsedURL)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"url":     body.URL,
+		"filters": names,
 	})
 }
 
