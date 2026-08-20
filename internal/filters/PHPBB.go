@@ -53,7 +53,13 @@ func (filter *PHPBB) Detect(page_url *url.URL, content []byte) bool {
 	}
 
 	if page_url != nil {
-		return phpbbPathToken(page_url) != ""
+
+		token := phpbbPathToken(page_url)
+
+		if token != "" && token != "index.php" {
+			return true
+		}
+
 	}
 
 	return false
