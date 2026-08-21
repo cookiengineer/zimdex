@@ -6,15 +6,12 @@
 
 ## internal/utils/zim
 
-- Move Render methods to `internal/utils/zim` namespace
-
-## internal/utils/zimfs
-
-- Move Searcher to zimfs namespace, use NewSearcher(folder string) and load files the same way that Manager does
-
+- Move RenderHTML, RenderCSS, RewriteHTML, RewriteCSS methods to `internal/utils/zim` namespace
+- Modify RewriteCSS to use a better filters.CSS
+- Create an ApplyFilterCSS() method, so that plugins can also rewrite CSS
 
 # internal/archive
 
-- Move internal/zimfs to internal/io/zimfs
-- Move internal/zim to internal/archive/zim
+- Move ./internal/zimfs to ./io/zimfs
+- Move ./internal/zim to ./archive/zim
 

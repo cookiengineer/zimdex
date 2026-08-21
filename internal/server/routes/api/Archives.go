@@ -18,6 +18,7 @@ func Archives(manager *zimfs.Manager, response http.ResponseWriter, request *htt
 
 			response.Header().Set("Content-Type", "application/json")
 			response.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+			response.WriteHeader(http.StatusOK)
 			response.Write(payload)
 
 		} else {

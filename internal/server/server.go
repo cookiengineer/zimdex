@@ -3,6 +3,7 @@ package server
 import "github.com/cookiengineer/zimdex/internal/archive"
 import "github.com/cookiengineer/zimdex/internal/server/middlewares"
 import routes_api "github.com/cookiengineer/zimdex/internal/server/routes/api"
+import routes_zim "github.com/cookiengineer/zimdex/internal/server/routes/zim"
 import "github.com/cookiengineer/zimdex/io/zimfs"
 import "context"
 import _ "embed"
@@ -97,6 +98,10 @@ func (server *Server) registerRoutes() {
 		routes_api.Filters(response, request)
 	})
 
+	server.mux.HandleFunc("GET /{zimfile}/{zimpath...}", func(response http.ResponseWriter, request *http.Request) {
+		routes_zim.Render(response, request)
+	})
+
 
 
 
@@ -113,7 +118,6 @@ func (server *Server) registerRoutes() {
 	server.mux.HandleFunc("POST /api/archive/{hostname}/build", handlers.handleArchiveBuild)
 	server.mux.HandleFunc("POST /api/archive/{hostname}/retry", handlers.handleArchiveRetry)
 
-	server.mux.HandleFunc("GET /{zimfile}/{remainder...}", handlers.handleRender)
 
 }
 

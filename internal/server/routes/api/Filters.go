@@ -35,6 +35,7 @@ func Filters(response http.ResponseWriter, request *http.Request) {
 
 			response.Header().Set("Content-Type", "application/json")
 			response.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+			response.WriteHeader(http.StatusOK)
 			response.Write(payload)
 
 		} else {
