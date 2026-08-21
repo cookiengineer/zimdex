@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/cookiengineer/zimdex/internal/server"
-	"github.com/cookiengineer/zimdex/internal/zimfs"
+	"github.com/cookiengineer/zimdex/io/zimfs"
 )
 
 func resolvePath(raw string) string {
@@ -71,7 +71,7 @@ func main() {
 		log.Printf("Loaded %d ZIM archive(s)", len(archives))
 	}
 
-	srv := server.NewServer(manager, port)
+	srv := server.NewServer(folder, port)
 
 	go func() {
 		if err := srv.Start(); err != nil && err.Error() != "http: Server closed" {

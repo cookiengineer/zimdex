@@ -15,7 +15,7 @@ import (
 
 	"github.com/cookiengineer/gozim/archive/zim"
 	"github.com/cookiengineer/zimdex/internal/utils/urls"
-	"github.com/cookiengineer/zimdex/internal/zimfs"
+	"github.com/cookiengineer/zimdex/io/zimfs"
 )
 
 func TestCanonicalizeURL(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	utils_urls "github.com/cookiengineer/zimdex/internal/utils/urls"
-	"github.com/cookiengineer/zimdex/internal/zimfs"
+	"github.com/cookiengineer/zimdex/io/zimfs"
 )
 
 type Scraper struct {

@@ -12,3 +12,9 @@
 
 - Move Searcher to zimfs namespace, use NewSearcher(folder string) and load files the same way that Manager does
 
+
+# internal/archive
+
+- Move internal/zimfs to internal/io/zimfs
+- Move internal/zim to internal/archive/zim
+

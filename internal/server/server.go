@@ -1,18 +1,15 @@
 package server
 
-import (
-	"context"
-	_ "embed"
-	"log"
-	"net/http"
-	"strconv"
-	"sync"
-
-	"github.com/cookiengineer/gozim/archive/zim"
-	"github.com/cookiengineer/zimdex/internal/archive"
-	"github.com/cookiengineer/zimdex/internal/search"
-	"github.com/cookiengineer/zimdex/internal/zimfs"
-)
+import "github.com/cookiengineer/zimdex/internal/archive"
+import "github.com/cookiengineer/zimdex/internal/server/middlewares"
+import routes_api "github.com/cookiengineer/zimdex/internal/server/routes/api"
+import "github.com/cookiengineer/zimdex/io/zimfs"
+import "context"
+import _ "embed"
+import "log"
+import "net/http"
+import "strconv"
+import "sync"
 
 //go:embed templates/index.html
 var indexHTML string
@@ -36,7 +33,6 @@ func serveTemplate(w http.ResponseWriter, name string) {
 
 type Server struct {
 	manager   *zimfs.Manager
-	searcher  *search.Searcher
 	scrapers  map[string]*archive.Scraper
 	scraperMu sync.RWMutex
 	mux       *http.ServeMux
@@ -44,22 +40,12 @@ type Server struct {
 	httpServer *http.Server
 }
 
-func NewServer(manager *zimfs.Manager, port int) *Server {
-	archives := make(map[string]*zim.Archive)
+func NewServer(folder string, port int) *Server {
 
-	for _, info := range manager.List() {
-
-		archive := manager.Get(info.Filename)
-
-		if archive != nil {
-			archives[info.Filename] = archive
-		}
-
-	}
+	manager  := zimfs.NewManager(folder)
 
 	s := &Server{
 		manager:  manager,
-		searcher: search.NewSearcher(archives),
 		scrapers: make(map[string]*archive.Scraper),
 		mux:      http.NewServeMux(),
 		port:     port,
@@ -69,57 +55,76 @@ func NewServer(manager *zimfs.Manager, port int) *Server {
 	return s
 }
 
-func (s *Server) registerRoutes() {
+func (server *Server) registerRoutes() {
+
 	handlers := &Handlers{
-		Manager:  s.manager,
-		Searcher: s.searcher,
-		Scrapers: s.scrapers,
-		ScraperMu: &s.scraperMu,
-		DataDir:  s.manager.Folder,
+		Manager:   server.manager,
+		Scrapers:  server.scrapers,
+		ScraperMu: &server.scraperMu,
+		DataDir:   server.manager.Folder,
 	}
 
-	s.mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+	server.mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/index.html", http.StatusSeeOther)
 	})
 
-	s.mux.HandleFunc("GET /index.html", func(w http.ResponseWriter, r *http.Request) {
+	server.mux.HandleFunc("GET /index.html", func(w http.ResponseWriter, r *http.Request) {
 		serveTemplate(w, "index.html")
 	})
 
-	s.mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+	server.mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	s.mux.HandleFunc("GET /archive.html", func(w http.ResponseWriter, r *http.Request) {
+	server.mux.HandleFunc("GET /archive.html", func(w http.ResponseWriter, r *http.Request) {
 		serveTemplate(w, "archive.html")
 	})
 
-	s.mux.HandleFunc("GET /api/search", handlers.handleSearch)
-	s.mux.HandleFunc("GET /api/suggest", handlers.handleSuggest)
-	s.mux.HandleFunc("GET /api/archives", handlers.handleArchives)
-	s.mux.HandleFunc("GET /api/filters", handlers.handleFilters)
 
-	s.mux.HandleFunc("POST /api/archive/start", handlers.handleArchiveStart)
-	s.mux.HandleFunc("POST /api/archive/detect", handlers.handleArchiveDetect)
-	s.mux.HandleFunc("GET /api/archive/{hostname}/status", handlers.handleArchiveStatus)
-	s.mux.HandleFunc("GET /api/archive/{hostname}/queue", handlers.handleArchiveQueue)
-	s.mux.HandleFunc("POST /api/archive/{hostname}/pause", handlers.handleArchivePause)
-	s.mux.HandleFunc("POST /api/archive/{hostname}/continue", handlers.handleArchiveContinue)
-	s.mux.HandleFunc("POST /api/archive/{hostname}/stop", handlers.handleArchiveStop)
-	s.mux.HandleFunc("POST /api/archive/{hostname}/build", handlers.handleArchiveBuild)
-	s.mux.HandleFunc("POST /api/archive/{hostname}/retry", handlers.handleArchiveRetry)
 
-	s.mux.HandleFunc("GET /{zimfile}/{remainder...}", handlers.handleRender)
+
+
+
+	server.mux.HandleFunc("GET /api/search", func(response http.ResponseWriter, request *http.Request) {
+		routes_api.Search(server.manager, response, request)
+	})
+
+	server.mux.HandleFunc("GET /api/archives", func(response http.ResponseWriter, request *http.Request) {
+		routes_api.Archives(server.manager, response, request)
+	})
+
+	server.mux.HandleFunc("GET /api/filters",  func(response http.ResponseWriter, request *http.Request) {
+		routes_api.Filters(response, request)
+	})
+
+
+
+
+
+
+	// TODO: routes_archive
+	server.mux.HandleFunc("POST /api/archive/detect", handlers.handleArchiveDetect)
+	server.mux.HandleFunc("POST /api/archive/start", handlers.handleArchiveStart)
+	server.mux.HandleFunc("GET /api/archive/{hostname}/status", handlers.handleArchiveStatus)
+	server.mux.HandleFunc("GET /api/archive/{hostname}/queue", handlers.handleArchiveQueue)
+	server.mux.HandleFunc("POST /api/archive/{hostname}/pause", handlers.handleArchivePause)
+	server.mux.HandleFunc("POST /api/archive/{hostname}/continue", handlers.handleArchiveContinue)
+	server.mux.HandleFunc("POST /api/archive/{hostname}/stop", handlers.handleArchiveStop)
+	server.mux.HandleFunc("POST /api/archive/{hostname}/build", handlers.handleArchiveBuild)
+	server.mux.HandleFunc("POST /api/archive/{hostname}/retry", handlers.handleArchiveRetry)
+
+	server.mux.HandleFunc("GET /{zimfile}/{remainder...}", handlers.handleRender)
+
 }
 
 func (s *Server) Start() error {
 	addr := ":" + strconv.Itoa(s.port)
 
-	handler := ChainMiddleware(
+	handler := middlewares.Join(
 		s.mux,
-		RecoveryMiddleware,
-		LoggingMiddleware,
-		CSPMiddleware,
+		middlewares.Recover,
+		middlewares.Log,
+		middlewares.ContentSecurityPolicy,
 	)
 
 	s.httpServer = &http.Server{

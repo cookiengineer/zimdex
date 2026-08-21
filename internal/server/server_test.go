@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cookiengineer/zimdex/internal/zimfs"
+	"github.com/cookiengineer/zimdex/io/zimfs"
 )
 
 func newTestServer(t *testing.T) *Server {

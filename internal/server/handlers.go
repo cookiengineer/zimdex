@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -13,10 +12,8 @@ import (
 	"sync"
 
 	"github.com/cookiengineer/zimdex/internal/archive"
-	"github.com/cookiengineer/zimdex/internal/filters"
 	"github.com/cookiengineer/zimdex/internal/render"
-	"github.com/cookiengineer/zimdex/internal/search"
-	"github.com/cookiengineer/zimdex/internal/zimfs"
+	"github.com/cookiengineer/zimdex/io/zimfs"
 )
 
 var htmlTagRegex = regexp.MustCompile(`<[^>]*>`)
@@ -33,27 +30,9 @@ func formatSnippet(raw string) string {
 
 type Handlers struct {
 	Manager   *zimfs.Manager
-	Searcher  *search.Searcher
 	Scrapers  map[string]*archive.Scraper
 	ScraperMu *sync.RWMutex
 	DataDir   string
-}
-
-func (h *Handlers) handleFilters(w http.ResponseWriter, r *http.Request) {
-	type filterInfo struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Default     bool   `json:"default"`
-	}
-	all := filters.Registry
-	infos := make([]filterInfo, len(all))
-	for i, f := range all {
-		infos[i] = filterInfo{Name: f.Name(), Description: f.Description(), Default: f.IsDefault()}
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"filters": infos,
-	})
 }
 
 func (h *Handlers) handleArchiveDetect(w http.ResponseWriter, r *http.Request) {
@@ -97,142 +76,6 @@ func (h *Handlers) handleArchiveDetect(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"url":     body.URL,
 		"filters": names,
-	})
-}
-
-func (h *Handlers) handleArchives(w http.ResponseWriter, r *http.Request) {
-	archives := h.Manager.List()
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"archives": archives,
-	})
-}
-
-func (h *Handlers) handleSearch(w http.ResponseWriter, r *http.Request) {
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-
-	offset := 0
-	limit := 20
-
-	if v := r.URL.Query().Get("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			offset = n
-		}
-	}
-
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
-			limit = n
-		}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-
-	if query == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"query":     "",
-			"offset":    offset,
-			"limit":     limit,
-			"estimated": 0,
-			"results":   []interface{}{},
-		})
-		return
-	}
-
-	resultSet, err := h.Searcher.Search(query, offset, limit)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"query":     query,
-			"offset":    offset,
-			"limit":     limit,
-			"estimated": 0,
-			"results":   []interface{}{},
-		})
-		return
-	}
-
-	results := make([]map[string]interface{}, 0)
-
-	for _, r := range resultSet.Results() {
-
-		zimFile := h.Manager.Which(r.Path)
-
-		renderPath := r.Path
-		if strings.HasPrefix(renderPath, "C/") {
-			renderPath = renderPath[2:]
-		}
-
-		renderURL := ""
-		if zimFile != "" {
-			renderURL = fmt.Sprintf("/%s/%s", zimFile, renderPath)
-		}
-
-		results = append(results, map[string]interface{}{
-			"title":      r.Title,
-			"path":       r.Path,
-			"zim_file":   zimFile,
-			"render_url": renderURL,
-			"score":      r.Score,
-			"snippet":    formatSnippet(r.Snippet),
-			"word_count": r.WordCount,
-		})
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"query":     query,
-		"offset":    offset,
-		"limit":     limit,
-		"estimated": resultSet.EstimatedMatches(),
-		"results":   results,
-	})
-}
-
-func (h *Handlers) handleSuggest(w http.ResponseWriter, r *http.Request) {
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	limit := 10
-
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 50 {
-			limit = n
-		}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-
-	if query == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"query":       "",
-			"suggestions": []interface{}{},
-		})
-		return
-	}
-
-	items := h.Searcher.Suggest(query, limit)
-
-	suggestions := make([]map[string]interface{}, 0, len(items))
-	for _, item := range items {
-		renderPath := item.Path
-		if strings.HasPrefix(renderPath, "C/") {
-			renderPath = renderPath[2:]
-		}
-
-		renderURL := ""
-		if item.ZimFile != "" {
-			renderURL = fmt.Sprintf("/%s/%s", item.ZimFile, renderPath)
-		}
-
-		suggestions = append(suggestions, map[string]interface{}{
-			"title":      item.Title,
-			"path":       item.Path,
-			"render_url": renderURL,
-			"snippet":    item.Snippet,
-		})
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"query":       query,
-		"suggestions": suggestions,
 	})
 }
 
@@ -534,8 +377,7 @@ func (h *Handlers) handleArchiveBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.Manager.Reload()
-	h.Searcher.AddArchive(filepath.Base(zimPath), h.Manager.Get(filepath.Base(zimPath)))
+	h.Manager.Add(filepath.Base(zimPath))
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"host":     host,

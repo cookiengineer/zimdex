@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cookiengineer/zimdex/internal/zimfs"
+	"github.com/cookiengineer/zimdex/io/zimfs"
 )
 
 type ScraperWorker struct {

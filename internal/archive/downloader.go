@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cookiengineer/zimdex/internal/zimfs"
+	"github.com/cookiengineer/zimdex/io/zimfs"
 )
 
 var userAgents = []string{

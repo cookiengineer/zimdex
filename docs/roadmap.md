@@ -104,19 +104,6 @@ This roadmap tracks all implementation tasks for ZIMdex, organized by phase. Eac
 
 **Goal**: Working search UI with BM25 full-text search and autocomplete across loaded ZIM files.
 
-### 1.1 Search Backend
-
-- [x] **1.1.1** — Implement `internal/search/searcher.go`
-  - `Searcher` struct: holds `[]*zim.Archive` and a `*zim.Searcher`
-  - `NewSearcher(archives []*zim.Archive) *Searcher` — Calls `zim.NewSearcher(archives...)` to create BM25 index
-  - `Search(query string, offset, limit int) (*zim.SearchResultSet, error)` — Delegates to gozim searcher
-  - `Suggest(prefix string, limit int) ([]SuggestionResult, error)` — For each archive, calls `zim.NewSuggestionSearcher(a).Suggest(prefix, limit)`, merges results, deduplicates by path, sorts by relevance, returns top N
-  - `AddArchive(a *zim.Archive)` — Rebuild searcher with new archive
-  - `Close() error`
-
-- [x] **1.1.2** — Define `SuggestionResult` struct
-  - `Title`, `Path`, `RenderURL`, `Snippet`, `ZimFile` fields
-
 ### 1.2 Search API Handlers
 
 - [x] **1.2.1** — Implement `handleSearch`
@@ -566,10 +553,6 @@ This roadmap tracks all implementation tasks for ZIMdex, organized by phase. Eac
   - Archive API: all 7 routes return 200/202
   - Middleware: CSP headers, panic recovery (500)
   - Render E2E: 6 subtests with real devdocs Go ZIM (HTML filtering, CSS, binary, 404, 400)
-
-- [ ] **6.1.4** — Render filters unit tests (`internal/render/filters_test.go`)
-- [ ] **6.1.5** — Render rewriter unit tests (`internal/render/rewriter_test.go`)
-- [ ] **6.1.6** — Search searcher unit tests (`internal/search/searcher_test.go`)
 
 ### 6.2 Integration Tests
 
