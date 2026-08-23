@@ -1,10 +1,10 @@
 package zim
 
 import "github.com/cookiengineer/gozim/archive/zim"
-import "github.com/cookiengineer/zimdex/internal/filters"
-import utils_urls "github.com/cookiengineer/zimdex/internal/utils/urls"
+import "github.com/cookiengineer/zimdex/filters"
+import utils_urls "github.com/cookiengineer/zimdex/utils/urls"
 import "fmt"
-import "net/url"
+import net_url "net/url"
 import "strings"
 
 func Render(archive *zim.Archive, zim_file string, render_path string) ([]byte, string, error) {
@@ -21,7 +21,7 @@ func Render(archive *zim.Archive, zim_file string, render_path string) ([]byte, 
 			mime_type := item.MimeType()
 
 			if mime_type == "application/octet-stream" {
-				tmp_url, _ := url.Parse("http://localhost" + entry.Path())
+				tmp_url, _ := net_url.Parse("http://localhost" + entry.Path())
 				mime_type = utils_urls.GetMimeType(tmp_url)
 			}
 

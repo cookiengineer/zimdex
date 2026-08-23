@@ -1,6 +1,6 @@
 package urls
 
-import "github.com/cookiengineer/zimdex/internal/filters"
+import "github.com/cookiengineer/zimdex/filters"
 import net_url "net/url"
 import "strings"
 

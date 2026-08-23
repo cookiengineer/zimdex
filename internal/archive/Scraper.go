@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	utils_urls "github.com/cookiengineer/zimdex/internal/utils/urls"
+	utils_urls "github.com/cookiengineer/zimdex/utils/urls"
 	"github.com/cookiengineer/zimdex/io/zimfs"
 )
 

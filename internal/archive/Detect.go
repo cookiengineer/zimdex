@@ -1,13 +1,12 @@
 package archive
 
+import "github.com/cookiengineer/zimdex/filters"
 import "crypto/tls"
 import "fmt"
 import "io"
 import "net/http"
 import "net/url"
 import "time"
-
-import "github.com/cookiengineer/zimdex/internal/filters"
 
 func DetectFilters(start_url *url.URL) ([]string, error) {
 

@@ -1,6 +1,6 @@
 package api
 
-import "github.com/cookiengineer/zimdex/internal/filters"
+import "github.com/cookiengineer/zimdex/filters"
 import "encoding/json"
 import "net/http"
 import "strconv"

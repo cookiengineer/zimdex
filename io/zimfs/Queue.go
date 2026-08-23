@@ -1,10 +1,10 @@
 package zimfs
 
-import "github.com/cookiengineer/zimdex/internal/filters"
-import utils_urls "github.com/cookiengineer/zimdex/internal/utils/urls"
+import "github.com/cookiengineer/zimdex/filters"
+import utils_urls "github.com/cookiengineer/zimdex/utils/urls"
 import "encoding/json"
 import "fmt"
-import "net/url"
+import net_url "net/url"
 import "os"
 import "path/filepath"
 import "strings"
@@ -14,7 +14,7 @@ import "time"
 type Queue struct {
 	Folder    string           `json:"folder"`
 	StartDate time.Time        `json:"-"`
-	StartURL  *url.URL         `json:"-"`
+	StartURL  *net_url.URL     `json:"-"`
 	Filters   []filters.Filter `json:"-"`
 	info      QueueInfo        `json:"-"`
 	Status    QueueStatus      `json:"status"`
@@ -23,7 +23,7 @@ type Queue struct {
 	mutex     sync.RWMutex     `json:"-"`
 }
 
-func NewQueue(folder string, start_url *url.URL, filter_names []string) *Queue {
+func NewQueue(folder string, start_url *net_url.URL, filter_names []string) *Queue {
 
 	queue := &Queue{
 		Folder:    folder,
@@ -91,7 +91,7 @@ func (queue *Queue) UnmarshalJSON(data []byte) error {
 	if err0 == nil {
 
 		start_date, err1 := time.Parse("2006-01-02", tmp.StartDate)
-		start_url,  err2 := url.Parse(tmp.StartURL)
+		start_url,  err2 := net_url.Parse(tmp.StartURL)
 
 		if err1 == nil {
 			queue.StartDate = start_date
@@ -216,7 +216,7 @@ func (queue *Queue) Get(typ QueueEntryType) (QueueEntry, error) {
 
 }
 
-func (queue *Queue) Has(link *url.URL) bool {
+func (queue *Queue) Has(link *net_url.URL) bool {
 
 	queue.mutex.RLock()
 	defer queue.mutex.RUnlock()
@@ -266,7 +266,7 @@ func (queue *Queue) Query(status QueueEntryStatus) []QueueEntry {
 
 }
 
-func (queue *Queue) Enqueue(raw_url *url.URL, referrer *url.URL, typ QueueEntryType) bool {
+func (queue *Queue) Enqueue(raw_url *net_url.URL, referrer *net_url.URL, typ QueueEntryType) bool {
 
 	entry := NewQueueEntry(raw_url, nil, typ, referrer)
 	entry.folder = queue.Folder

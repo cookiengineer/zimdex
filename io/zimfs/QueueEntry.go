@@ -1,25 +1,25 @@
 package zimfs
 
-import "github.com/cookiengineer/zimdex/internal/filters"
-import utils_urls "github.com/cookiengineer/zimdex/internal/utils/urls"
+import "github.com/cookiengineer/zimdex/filters"
+import utils_urls "github.com/cookiengineer/zimdex/utils/urls"
 import "golang.org/x/net/html"
 import "bytes"
 import "encoding/json"
 import "fmt"
-import "net/url"
+import net_url "net/url"
 import "os"
 import "path/filepath"
 import "strings"
 import "time"
 
 type QueueEntry struct {
-	WebURL       *url.URL         `json:"-"` // via Alias
-	ZimURL       *url.URL         `json:"-"` // via Alias
+	WebURL       *net_url.URL     `json:"-"` // via Alias
+	ZimURL       *net_url.URL     `json:"-"` // via Alias
 	MimeType     string           `json:"mime_type"`
 	Type         QueueEntryType   `json:"type"`
 	Status       QueueEntryStatus `json:"status"`
 	Size         int64            `json:"size,omitempty"`
-	Referrer     *url.URL         `json:"-"` // via Alias
+	Referrer     *net_url.URL     `json:"-"` // via Alias
 	LastModified time.Time        `json:"-"` // via Alias
 	StatusCode   int              `json:"status_code"`
 	Retries      int              `json:"retries"`
@@ -28,7 +28,7 @@ type QueueEntry struct {
 	filters []filters.Filter `json:"-"`
 }
 
-func NewQueueEntry(web_url *url.URL, zim_url *url.URL, typ QueueEntryType, referrer *url.URL) *QueueEntry {
+func NewQueueEntry(web_url *net_url.URL, zim_url *net_url.URL, typ QueueEntryType, referrer *net_url.URL) *QueueEntry {
 
 	entry := QueueEntry{
 		WebURL:       utils_urls.Canonicalize(web_url),
@@ -186,7 +186,7 @@ func (entry *QueueEntry) UnmarshalJSON(data []byte) error {
 
 		if tmp.WebURL != "" {
 
-			web_url, err1 := url.Parse(tmp.WebURL)
+			web_url, err1 := net_url.Parse(tmp.WebURL)
 
 			if err1 == nil {
 				entry.WebURL = web_url
@@ -200,7 +200,7 @@ func (entry *QueueEntry) UnmarshalJSON(data []byte) error {
 
 		if tmp.ZimURL != "" {
 
-			zim_url, err2 := url.Parse(tmp.ZimURL)
+			zim_url, err2 := net_url.Parse(tmp.ZimURL)
 
 			if err2 == nil {
 				entry.ZimURL = zim_url
@@ -214,7 +214,7 @@ func (entry *QueueEntry) UnmarshalJSON(data []byte) error {
 
 		if tmp.Referrer != "" {
 
-			referrer, err3 := url.Parse(tmp.Referrer)
+			referrer, err3 := net_url.Parse(tmp.Referrer)
 
 			if err3 == nil {
 				entry.Referrer = referrer

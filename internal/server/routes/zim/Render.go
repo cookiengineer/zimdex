@@ -1,7 +1,7 @@
 package zim
 
 import "github.com/cookiengineer/zimdex/io/zimfs"
-import utils_zim "github.com/cookiengineer/zimdex/internal/utils/zim"
+import "github.com/cookiengineer/zimdex/utils/zim"
 import "fmt"
 import "net/http"
 import "strconv"
@@ -24,7 +24,7 @@ func Render(manager *zimfs.Manager, response http.ResponseWriter, request *http.
 
 			if archive != nil {
 
-				payload, mime_type, err := utils_zim.Render(archive, zim_file, zim_path)
+				payload, mime_type, err := zim.Render(archive, zim_file, zim_path)
 
 				if err == nil {
 
