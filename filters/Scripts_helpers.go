@@ -1,7 +1,7 @@
 package filters
 
-import "github.com/dop251/goja/ast"
-import "regexp"
+import "github.com/grafana/sobek/ast"
+import "github.com/grafana/sobek/parser"
 
 var js_network_callees = map[string]bool{
 	"fetch":          true,
@@ -631,42 +631,95 @@ func js_first_return_literal(block *ast.BlockStatement) string {
 
 }
 
-var js_import_from_regex = regexp.MustCompile(`\bfrom\s*(["'])([^"']+?)(["'])`)
-var js_import_side_regex = regexp.MustCompile(`\bimport\s*(["'])([^"']+?)(["'])`)
-
 func rewrite_js_imports(content []byte, resolve func(string) string) []byte {
 
-	content = js_import_from_regex.ReplaceAllFunc(content, func(match []byte) []byte {
+	program, err := parser.ParseFile(nil, "", string(content), 0, parser.IsModule, parser.WithDisableSourceMaps)
 
-		submatch := js_import_from_regex.FindSubmatch(match)
+	if err != nil {
+		return content
+	}
 
-		if len(submatch) < 4 {
-			return match
+	rewrites := make([]js_spoof, 0)
+
+	for _, statement := range program.Body {
+
+		switch current := statement.(type) {
+
+		case *ast.ImportDeclaration:
+
+		case *ast.ExportDeclaration:
+			if current.FromClause == nil {
+				continue
+			}
+
+		default:
+			continue
+
 		}
 
-		quote := string(submatch[1])
-		resolved := resolve(string(submatch[2]))
+		offset := int(statement.Idx0()) - 1
+		open, close, raw_url := find_js_string_literal(content, offset)
 
-		return []byte("from " + quote + resolved + quote)
-
-	})
-
-	content = js_import_side_regex.ReplaceAllFunc(content, func(match []byte) []byte {
-
-		submatch := js_import_side_regex.FindSubmatch(match)
-
-		if len(submatch) < 4 {
-			return match
+		if raw_url == "" {
+			continue
 		}
 
-		quote := string(submatch[1])
-		resolved := resolve(string(submatch[2]))
+		resolved := resolve(raw_url)
 
-		return []byte("import " + quote + resolved + quote)
+		if resolved == raw_url {
+			continue
+		}
 
-	})
+		rewrites = append(rewrites, js_spoof{
+			start: open + 1,
+			end:   close - 1,
+			body:  resolved,
+		})
 
-	return content
+	}
+
+	if len(rewrites) == 0 {
+		return content
+	}
+
+	result := []byte(content)
+
+	for index := len(rewrites) - 1; index >= 0; index-- {
+		rewrite := rewrites[index]
+		result = js_splice(result, rewrite.start, rewrite.end, rewrite.body)
+	}
+
+	return result
+
+}
+
+func find_js_string_literal(content []byte, from int) (int, int, string) {
+
+	for index := from; index < len(content); index++ {
+
+		if content[index] != '"' && content[index] != '\'' {
+			continue
+		}
+
+		quote := content[index]
+		open := index
+
+		for index++; index < len(content); index++ {
+
+			if content[index] == '\\' {
+				index++
+				continue
+			}
+
+			if content[index] == quote {
+				return open, index + 1, string(content[open+1 : index])
+			}
+
+		}
+
+	}
+
+	return 0, 0, ""
 
 }
 

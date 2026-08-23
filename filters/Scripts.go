@@ -1,6 +1,6 @@
 package filters
 
-import "github.com/dop251/goja/parser"
+import "github.com/grafana/sobek/parser"
 import "net/url"
 
 type Scripts struct{}

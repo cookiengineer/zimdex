@@ -140,7 +140,7 @@ GET /<file>.zim/<host><path>
   → Content-Type + Content-Length + body
 ```
 
-`filters.Zim` (set with `File: zim_file`) rewrites `href`/`src`/`srcset`/`action`/`cite`/`longdesc`/`poster`/`data-*` and CSS `url()`/`@import` to `/ <zimfile>/<host><path>` render paths, and strips `javascript:` URLs. `filters.Scripts` removes `<script>`/`<iframe>`/`<object>`/`<embed>`/`<applet>` and event-handler attributes. `filters.Trackers` strips tracking `<meta>`/`<link>` elements and 1×1 tracking images.
+`filters.Zim` (set with `File: zim_file`) rewrites `href`/`src`/`srcset`/`action`/`cite`/`longdesc`/`poster`/`data-*` and CSS `url()`/`@import` to `/ <zimfile>/<host><path>` render paths, and strips `javascript:` URLs. In JS it also rewrites ESM `import`/`export ... from` module specifiers to render paths (parsed via sobek's AST rather than regex). `filters.Scripts` removes `<script>`/`<iframe>`/`<object>`/`<embed>`/`<applet>` and event-handler attributes. `filters.Trackers` strips tracking `<meta>`/`<link>` elements and 1×1 tracking images.
 
 ### Scraping
 
@@ -221,7 +221,7 @@ type URLRewriter interface {            // optional
 |---|---|
 | `github.com/cookiengineer/gozim/archive/zim` | ZIM read/write, BM25 full-text search, entry/metadata access |
 | `golang.org/x/net/html` (+ `html/atom`) | HTML parsing and rendering (extractor, sanitizer, Zim rewrite) |
-| `github.com/dop251/goja/parser` | JS parsing for the `Scripts` filter |
+| `github.com/grafana/sobek` (`parser`, `ast`) | JS parsing for the `Scripts` filter and ESM `import`/`export` rewriting in the `Zim` filter |
 | Go stdlib | `net/http`, `net/url`, `encoding/json`, `context`, `sync`, etc. |
 
 ## Build, run, test
