@@ -64,7 +64,7 @@ func NewScraper(options ScraperOptions) (*Scraper, error) {
 	}
 
 	enqueueSeed := func(rawURL *url.URL) {
-		scraper.queue.EnqueueURL(rawURL, nil, rawURL, zimfs.QueueEntryTypePage)
+		scraper.queue.Enqueue(rawURL, rawURL, zimfs.QueueEntryTypePage)
 	}
 
 	// TODO: This should be Downloader.FetchRobots()
@@ -326,6 +326,6 @@ func (s *Scraper) extractAndEnqueue(entry *zimfs.QueueEntry) {
 			continue
 		}
 
-		s.queue.EnqueueURL(u.URL, data, pageURL, u.EntryType)
+		s.queue.Enqueue(u.URL, pageURL, u.EntryType)
 	}
 }

@@ -128,18 +128,6 @@ func (entry *QueueEntry) Title() string {
 
 }
 
-func (entry *QueueEntry) filterQueueEntryURL(raw_url *url.URL, html_body []byte, referrer *url.URL) (new_url, download_url *url.URL) {
-
-	filtered := filters.ApplyFilterURL(entry.filters, raw_url, html_body, referrer)
-
-	if filtered == nil {
-		return nil, nil
-	}
-
-	return filters.ApplyRewriteURL(entry.filters, filtered)
-
-}
-
 func (entry QueueEntry) MarshalJSON() ([]byte, error) {
 
 	type Alias QueueEntry

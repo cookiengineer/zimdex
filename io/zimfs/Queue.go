@@ -266,17 +266,19 @@ func (queue *Queue) Query(status QueueEntryStatus) []QueueEntry {
 
 }
 
-func (queue *Queue) EnqueueURL(raw_url *url.URL, html_body []byte, referrer *url.URL, typ QueueEntryType) bool {
+func (queue *Queue) Enqueue(raw_url *url.URL, referrer *url.URL, typ QueueEntryType) bool {
 
 	entry := NewQueueEntry(raw_url, nil, typ, referrer)
 	entry.folder = queue.Folder
 	entry.filters = queue.Filters
 
-	new_url, download_url := entry.filterQueueEntryURL(raw_url, html_body, referrer)
+	filtered := filters.ApplyFilterURL(queue.Filters, raw_url, nil, referrer)
 
-	if new_url == nil && download_url == nil {
+	if filtered == nil {
 		return false
 	}
+
+	new_url, download_url := filters.ApplyRewriteURL(queue.Filters, filtered)
 
 	if download_url == nil {
 		download_url = new_url
