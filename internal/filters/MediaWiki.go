@@ -172,6 +172,14 @@ func (filter *MediaWiki) FilterHTML(_ *url.URL, content []byte) []byte {
 
 }
 
+func (filter *MediaWiki) FilterCSS(_ *url.URL, content []byte) []byte {
+	return content
+}
+
+func (filter *MediaWiki) FilterJS(_ *url.URL, content []byte) []byte {
+	return content
+}
+
 func (filter *MediaWiki) RewriteURL(page_url *url.URL) (*url.URL, *url.URL) {
 
 	if page_url != nil {

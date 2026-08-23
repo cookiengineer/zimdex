@@ -1,6 +1,7 @@
 package zim
 
 import "github.com/cookiengineer/gozim/archive/zim"
+import "github.com/cookiengineer/zimdex/internal/filters"
 import utils_urls "github.com/cookiengineer/zimdex/internal/utils/urls"
 import "fmt"
 import "net/url"
@@ -18,7 +19,6 @@ func Render(archive *zim.Archive, zim_file string, render_path string) ([]byte, 
 		if err1 == nil && err2 == nil {
 
 			mime_type := item.MimeType()
-			rewriter  := NewRewriter(zim_file, page_url)
 
 			if mime_type == "application/octet-stream" {
 				tmp_url, _ := url.Parse("http://localhost" + entry.Path())
@@ -29,14 +29,22 @@ func Render(archive *zim.Archive, zim_file string, render_path string) ([]byte, 
 
 			if err3 == nil {
 
+				render_filters := []filters.Filter{
+					&filters.Scripts{},
+					&filters.Trackers{},
+					&filters.Zim{
+						File: zim_file,
+					},
+				}
+
 				switch {
 				case strings.HasPrefix(mime_type, "text/html"):
-					return RenderHTML(payload, rewriter)
+					return filters.ApplyFilterHTML(render_filters, page_url, payload), "text/html; charset=utf-8", nil
 				case strings.HasPrefix(mime_type, "text/css"):
-					return RenderCSS(payload, rewriter)
+					return filters.ApplyFilterCSS(render_filters, page_url, payload), "text/css; charset=utf-8", nil
 				case strings.HasPrefix(mime_type, "application/javascript"),
-					 strings.HasPrefix(mime_type, "text/javascript"):
-					return RenderJS(payload, rewriter)
+					strings.HasPrefix(mime_type, "text/javascript"):
+					return filters.ApplyFilterJS(render_filters, page_url, payload), mime_type, nil
 				default:
 					return payload, mime_type, nil
 				}

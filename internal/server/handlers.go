@@ -8,11 +8,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/cookiengineer/zimdex/internal/archive"
-	"github.com/cookiengineer/zimdex/internal/render"
 	"github.com/cookiengineer/zimdex/io/zimfs"
 )
 
@@ -77,40 +75,6 @@ func (h *Handlers) handleArchiveDetect(w http.ResponseWriter, r *http.Request) {
 		"url":     body.URL,
 		"filters": names,
 	})
-}
-
-func (h *Handlers) handleRender(w http.ResponseWriter, r *http.Request) {
-	zimFile := r.PathValue("zimfile")
-	remainder := r.PathValue("remainder")
-
-	if !strings.HasSuffix(zimFile, ".zim") {
-		http.Error(w, "ZIM filename must end with .zim", http.StatusBadRequest)
-		return
-	}
-
-	if r.URL.RawQuery != "" {
-		remainder = remainder + "?" + r.URL.RawQuery
-	}
-
-	archive := h.Manager.Get(zimFile)
-	if archive == nil {
-		http.Error(w, "ZIM file not found", http.StatusNotFound)
-		return
-	}
-
-	data, mimeType, err := render.Render(archive, zimFile, remainder)
-	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			http.Error(w, err.Error(), http.StatusNotFound)
-		} else {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	w.Header().Set("Content-Type", mimeType)
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	w.Write(data)
 }
 
 func (h *Handlers) handleArchiveStart(w http.ResponseWriter, r *http.Request) {

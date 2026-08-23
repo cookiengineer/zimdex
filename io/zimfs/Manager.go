@@ -185,10 +185,7 @@ func (manager *Manager) Remove(filename string) error {
 
 }
 
-func (manager *Manager) Search(query string, offset int, limit int) (*zim.SearchResultSet, error) {
-
-	var result *zim.SearchResultSet
-	var err error
+func (manager *Manager) Search(query string, offset int, limit int) (result *zim.SearchResultSet, err error) {
 
 	manager.mutex.RLock()
 	defer manager.mutex.RUnlock()
@@ -197,7 +194,7 @@ func (manager *Manager) Search(query string, offset int, limit int) (*zim.Search
 
 		if reason := recover(); reason != nil {
 			result = nil
-			err    = fmt.Errorf("ZIM search index panic: %v", reason)
+			err = fmt.Errorf("ZIM search index panic: %v", reason)
 		}
 
 	}()

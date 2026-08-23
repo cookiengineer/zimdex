@@ -103,3 +103,81 @@ func TestScriptsFilterHTML(t *testing.T) {
 		t.Errorf("FilterHTML dropped content: %s", got)
 	}
 }
+
+func TestScriptsFilterJSFarbleAsync(t *testing.T) {
+	filter := &Scripts{}
+	input := `async function trackUser() { await fetch('https://analytics.example.com/x'); return true; }`
+
+	got := string(filter.FilterJS(nil, []byte(input)))
+
+	if !strings.Contains(got, "async function trackUser() { return true; }") {
+		t.Errorf("FilterJS() = %q, want farbled async signature", got)
+	}
+	if strings.Contains(got, "fetch") {
+		t.Errorf("FilterJS() left network call intact: %s", got)
+	}
+}
+
+func TestScriptsFilterJSFarbleFetch(t *testing.T) {
+	filter := &Scripts{}
+	input := `function sendEvent() { fetch('/track'); console.log('done'); }`
+
+	got := string(filter.FilterJS(nil, []byte(input)))
+
+	if !strings.Contains(got, "function sendEvent() { return true; }") {
+		t.Errorf("FilterJS() = %q, want farbled body", got)
+	}
+	if strings.Contains(got, "fetch") || strings.Contains(got, "console.log") {
+		t.Errorf("FilterJS() left network code intact: %s", got)
+	}
+}
+
+func TestScriptsFilterJSFarbleXHR(t *testing.T) {
+	filter := &Scripts{}
+	input := `function load() { var xhr = new XMLHttpRequest(); xhr.open('GET', '/data'); xhr.send(); }`
+
+	got := string(filter.FilterJS(nil, []byte(input)))
+
+	if !strings.Contains(got, "function load() { return true; }") {
+		t.Errorf("FilterJS() = %q, want farbled XHR body", got)
+	}
+	if strings.Contains(got, "XMLHttpRequest") {
+		t.Errorf("FilterJS() left XHR intact: %s", got)
+	}
+}
+
+func TestScriptsFilterJSPreservesNonNetwork(t *testing.T) {
+	filter := &Scripts{}
+	input := `function add(a, b) { return a + b; }`
+
+	got := string(filter.FilterJS(nil, []byte(input)))
+
+	if got != input {
+		t.Errorf("FilterJS() = %q, want unchanged %q", got, input)
+	}
+}
+
+func TestScriptsFilterJSFarbleNested(t *testing.T) {
+	filter := &Scripts{}
+	input := `function outer() { function inner() { fetch('/x'); } inner(); return 1; }`
+
+	got := string(filter.FilterJS(nil, []byte(input)))
+
+	if !strings.Contains(got, "function inner() { return true; }") {
+		t.Errorf("FilterJS() did not farble nested function: %s", got)
+	}
+	if !strings.Contains(got, "return 1;") {
+		t.Errorf("FilterJS() should preserve non-network outer body: %s", got)
+	}
+}
+
+func TestScriptsFilterJSInvalidInput(t *testing.T) {
+	filter := &Scripts{}
+	input := []byte("this is not valid javascript {{{")
+
+	got := filter.FilterJS(nil, input)
+
+	if string(got) != string(input) {
+		t.Errorf("FilterJS() = %q, want unchanged for invalid input", got)
+	}
+}

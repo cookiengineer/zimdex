@@ -58,36 +58,6 @@ main {
 .search-box input:focus {
   border-color: var(--highlight);
 }
-.suggestions {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 0 0 12px 12px;
-  border-top: none;
-  display: none;
-  z-index: 10;
-  max-height: 300px;
-  overflow-y: auto;
-}
-.suggestions:not(:empty) { display: block; }
-.suggestion {
-  padding: 0.75rem 1.25rem;
-  cursor: pointer;
-  border-bottom: 1px solid var(--border);
-}
-.suggestion:hover, .suggestion.active {
-  background: var(--accent);
-}
-.suggestion .title {
-  font-weight: 600;
-}
-.suggestion .snippet {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-}
 .results {
   display: flex;
   flex-direction: column;
@@ -151,7 +121,6 @@ main {
       autocomplete="off"
       autofocus
     >
-    <div class="suggestions" id="suggestions"></div>
   </div>
   <div class="results" id="results"></div>
   <div class="empty-state" id="empty-state">
@@ -162,12 +131,8 @@ main {
 <script>
 const input = document.getElementById('search-input')
 const results = document.getElementById('results')
-const suggestions = document.getElementById('suggestions')
 const emptyState = document.getElementById('empty-state')
 const archiveCount = document.getElementById('archive-count')
-
-let suggestTimer = null
-let activeIndex = -1
 
 async function fetchJSON(url) {
   const resp = await fetch(url)
@@ -197,42 +162,14 @@ async function doSearch(query) {
     }
     results.innerHTML = data.results.map(r => `
       <div class="result">
-        <div class="title"><a href="${encodeURI(r.render_url || '#')}">${escapeHTML(r.title)}</a> <span class="score">${r.score.toFixed(1)}</span></div>
+        <div class="title"><a href="${encodeURI(r.url || '#')}">${escapeHTML(r.title)}</a> <span class="score">${r.score.toFixed(1)}</span></div>
         <div class="snippet">${r.snippet || ''}</div>
-        <div class="meta">${escapeHTML(r.zim_file || '')} · ${r.word_count || 0} words</div>
+        <div class="meta">${escapeHTML(r.file || '')} · ${r.word_count || 0} words</div>
       </div>
     `).join('')
   } catch(e) {
     results.innerHTML = '<div class="empty-state"><p>Search failed. Is the server running?</p></div>'
   }
-}
-
-async function doSuggest(prefix) {
-  if (!prefix.trim() || prefix.length < 2) {
-    suggestions.innerHTML = ''
-    return
-  }
-  try {
-    const data = await fetchJSON(`/api/suggest?q=${encodeURIComponent(prefix)}&limit=10`)
-    if (!data.suggestions || data.suggestions.length === 0) {
-      suggestions.innerHTML = ''
-      return
-    }
-    activeIndex = -1
-    suggestions.innerHTML = data.suggestions.map((s, i) => `
-      <div class="suggestion" data-index="${i}" data-render="${escapeHTML(s.render_url || '#')}">
-        <div class="title">${escapeHTML(s.title)}</div>
-        <div class="snippet">${escapeHTML(s.snippet || '')}</div>
-      </div>
-    `).join('')
-    suggestions.querySelectorAll('.suggestion').forEach(el => {
-      el.addEventListener('click', () => {
-        const url = el.dataset.render
-        if (url && url !== '#') window.location.href = url
-        else { input.value = el.querySelector('.title').textContent; suggestions.innerHTML = ''; doSearch(input.value) }
-      })
-    })
-  } catch(e) {}
 }
 
 function escapeHTML(str) {
@@ -241,43 +178,11 @@ function escapeHTML(str) {
   return div.innerHTML
 }
 
-input.addEventListener('input', () => {
-  clearTimeout(suggestTimer)
-  suggestTimer = setTimeout(() => doSuggest(input.value), 200)
-})
-
 input.addEventListener('keydown', (e) => {
-  const items = suggestions.querySelectorAll('.suggestion')
-  if (e.key === 'ArrowDown') {
+  if (e.key === 'Enter') {
     e.preventDefault()
-    activeIndex = Math.min(activeIndex + 1, items.length - 1)
-    updateActive(items)
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault()
-    activeIndex = Math.max(activeIndex - 1, 0)
-    updateActive(items)
-  } else if (e.key === 'Enter') {
-    if (activeIndex >= 0 && items[activeIndex]) {
-      e.preventDefault()
-      items[activeIndex].click()
-    } else {
-      suggestions.innerHTML = ''
-      doSearch(input.value)
-    }
-  } else if (e.key === 'Escape') {
-    suggestions.innerHTML = ''
+    doSearch(input.value)
   }
-})
-
-function updateActive(items) {
-  items.forEach((item, i) => {
-    item.classList.toggle('active', i === activeIndex)
-    if (i === activeIndex) item.scrollIntoView({ block: 'nearest' })
-  })
-}
-
-document.addEventListener('click', (e) => {
-  if (!e.target.closest('.search-box')) suggestions.innerHTML = ''
 })
 
 loadArchives()

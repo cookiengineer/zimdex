@@ -256,6 +256,14 @@ func (filter *Trackers) FilterHTML(_ *url.URL, content []byte) []byte {
 
 }
 
+func (filter *Trackers) FilterCSS(_ *url.URL, content []byte) []byte {
+	return content
+}
+
+func (filter *Trackers) FilterJS(_ *url.URL, content []byte) []byte {
+	return content
+}
+
 func FilterTrackers(page_url *url.URL) {
 
 	if page_url != nil && page_url.RawQuery != "" {

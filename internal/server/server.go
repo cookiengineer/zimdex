@@ -99,7 +99,7 @@ func (server *Server) registerRoutes() {
 	})
 
 	server.mux.HandleFunc("GET /{zimfile}/{zimpath...}", func(response http.ResponseWriter, request *http.Request) {
-		routes_zim.Render(response, request)
+		routes_zim.Render(server.manager, response, request)
 	})
 
 

@@ -185,6 +185,14 @@ func (filter *VBulletin) FilterHTML(page_url *url.URL, content []byte) []byte {
 
 }
 
+func (filter *VBulletin) FilterCSS(_ *url.URL, content []byte) []byte {
+	return content
+}
+
+func (filter *VBulletin) FilterJS(_ *url.URL, content []byte) []byte {
+	return content
+}
+
 func (filter *VBulletin) RewriteURL(page_url *url.URL) (*url.URL, *url.URL) {
 
 	if page_url == nil {

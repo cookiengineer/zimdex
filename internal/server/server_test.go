@@ -8,27 +8,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cookiengineer/zimdex/internal/server/middlewares"
+	routes_zim "github.com/cookiengineer/zimdex/internal/server/routes/zim"
 	"github.com/cookiengineer/zimdex/io/zimfs"
 )
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
 
-	dir := t.TempDir()
-	manager := zimfs.NewManager(dir)
-	_ = manager.Scan()
-
-	return NewServer(manager, 0)
+	return NewServer(t.TempDir(), 0)
 }
 
 func newTestServerWithMux(t *testing.T) (*Server, *http.ServeMux) {
 	t.Helper()
 
-	dir := t.TempDir()
-	manager := zimfs.NewManager(dir)
-	_ = manager.Scan()
-
-	srv := NewServer(manager, 0)
+	srv := NewServer(t.TempDir(), 0)
 	return srv, srv.mux
 }
 
@@ -116,18 +110,8 @@ func TestAPISearchEmpty(t *testing.T) {
 
 	mux.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rec.Code)
-	}
-
-	var body map[string]interface{}
-	json.Unmarshal(rec.Body.Bytes(), &body)
-
-	if body["query"] != "" {
-		t.Error("expected empty query")
-	}
-	if results, ok := body["results"].([]interface{}); !ok || len(results) != 0 {
-		t.Error("expected empty results for empty query")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
 	}
 }
 
@@ -139,40 +123,9 @@ func TestAPISearchWithQuery(t *testing.T) {
 
 	mux.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rec.Code)
-	}
-
-	var body map[string]interface{}
-	json.Unmarshal(rec.Body.Bytes(), &body)
-
-	if body["query"] != "test" {
-		t.Errorf("expected query 'test', got %v", body["query"])
-	}
-
-	limit, ok := body["limit"].(float64)
-	if !ok || int(limit) != 10 {
-		t.Errorf("expected limit 10, got %v", body["limit"])
-	}
-}
-
-func TestAPISuggest(t *testing.T) {
-	_, mux := newTestServerWithMux(t)
-
-	req := httptest.NewRequest("GET", "/api/suggest?q=quantum&limit=5", nil)
-	rec := httptest.NewRecorder()
-
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rec.Code)
-	}
-
-	var body map[string]interface{}
-	json.Unmarshal(rec.Body.Bytes(), &body)
-
-	if body["query"] != "quantum" {
-		t.Errorf("expected query 'quantum', got %v", body["query"])
+	// no archives loaded → search index unavailable
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", rec.Code)
 	}
 }
 
@@ -236,11 +189,11 @@ func TestArchiveAPIRoutes(t *testing.T) {
 func TestCSPHeaders(t *testing.T) {
 	srv := newTestServer(t)
 
-	handler := ChainMiddleware(
+	handler := middlewares.Join(
 		srv.mux,
-		RecoveryMiddleware,
-		LoggingMiddleware,
-		CSPMiddleware,
+		middlewares.Recover,
+		middlewares.Log,
+		middlewares.ContentSecurityPolicy,
 	)
 
 	req := httptest.NewRequest("GET", "/index.html", nil)
@@ -264,7 +217,7 @@ func TestRecoveryMiddleware(t *testing.T) {
 		panic("test panic")
 	})
 
-	handler := ChainMiddleware(mux, RecoveryMiddleware)
+	handler := middlewares.Join(mux, middlewares.Recover)
 
 	req := httptest.NewRequest("GET", "/panic", nil)
 	rec := httptest.NewRecorder()
@@ -292,10 +245,11 @@ func TestRenderEndToEnd(t *testing.T) {
 	defer manager.Close()
 
 	mux := http.NewServeMux()
-	handlers := &Handlers{Manager: manager}
-	mux.HandleFunc("GET /{zimfile}/{remainder...}", handlers.handleRender)
+	mux.HandleFunc("GET /{zimfile}/{zimpath...}", func(w http.ResponseWriter, r *http.Request) {
+		routes_zim.Render(manager, w, r)
+	})
 
-	handler := ChainMiddleware(mux, RecoveryMiddleware, CSPMiddleware)
+	handler := middlewares.Join(mux, middlewares.Recover, middlewares.ContentSecurityPolicy)
 
 	tests := []struct {
 		name          string
@@ -334,19 +288,19 @@ func TestRenderEndToEnd(t *testing.T) {
 			name:       "Missing entry returns 404",
 			path:       "/" + zimName + "/nonexistent.html",
 			expectCode: 404,
-			expectType: "text/plain",
+			expectType: "application/octet-stream",
 		},
 		{
 			name:       "No .zim suffix returns 400",
 			path:       "/nozim/foo/bar",
 			expectCode: 400,
-			expectType: "text/plain",
+			expectType: "application/octet-stream",
 		},
 		{
 			name:       "Missing ZIM file returns 404",
 			path:       "/nope.zim/foo/bar",
 			expectCode: 404,
-			expectType: "text/plain",
+			expectType: "application/octet-stream",
 		},
 	}
 

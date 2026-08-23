@@ -9,5 +9,7 @@ type Filter interface {
 	Detect(*url.URL, []byte) bool
 	FilterURL(*url.URL) *url.URL
 	FilterHTML(*url.URL, []byte) []byte
+	FilterCSS(*url.URL, []byte) []byte
+	FilterJS(*url.URL, []byte) []byte
 }
 

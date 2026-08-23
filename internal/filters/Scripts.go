@@ -1,5 +1,6 @@
 package filters
 
+import "github.com/dop251/goja/parser"
 import "net/url"
 
 type Scripts struct{}
@@ -51,3 +52,37 @@ func (filter *Scripts) FilterHTML(_ *url.URL, content []byte) []byte {
 	return sanitizer.Render()
 
 }
+
+func (filter *Scripts) FilterCSS(_ *url.URL, content []byte) []byte {
+	return content
+}
+
+func (filter *Scripts) FilterJS(_ *url.URL, content []byte) []byte {
+
+	program, err := parser.ParseFile(nil, "", string(content), 0)
+
+	if err != nil {
+		return content
+	}
+
+	spoofs := make([]js_spoof, 0)
+
+	for _, statement := range program.Body {
+		find_js_functions(statement, &spoofs)
+	}
+
+	if len(spoofs) == 0 {
+		return content
+	}
+
+	result := []byte(content)
+
+	for index := len(spoofs) - 1; index >= 0; index-- {
+		spoof := spoofs[index]
+		result = js_splice(result, spoof.start, spoof.end, spoof.body)
+	}
+
+	return result
+
+}
+

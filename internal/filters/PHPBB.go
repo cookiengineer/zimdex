@@ -127,6 +127,14 @@ func (filter *PHPBB) FilterHTML(page_url *url.URL, content []byte) []byte {
 
 }
 
+func (filter *PHPBB) FilterCSS(_ *url.URL, content []byte) []byte {
+	return content
+}
+
+func (filter *PHPBB) FilterJS(_ *url.URL, content []byte) []byte {
+	return content
+}
+
 func (filter *PHPBB) RewriteURL(page_url *url.URL) (*url.URL, *url.URL) {
 
 	if page_url == nil {

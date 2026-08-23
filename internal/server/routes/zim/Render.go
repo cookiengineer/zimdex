@@ -2,9 +2,10 @@ package zim
 
 import "github.com/cookiengineer/zimdex/io/zimfs"
 import utils_zim "github.com/cookiengineer/zimdex/internal/utils/zim"
-import "encoding/json"
+import "fmt"
 import "net/http"
 import "strconv"
+import "strings"
 
 func Render(manager *zimfs.Manager, response http.ResponseWriter, request *http.Request) {
 

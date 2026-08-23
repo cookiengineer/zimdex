@@ -128,7 +128,7 @@ async function loadFilters() {
     }
     container.innerHTML = data.filters.map(f =>
       '<label style="display:block;margin-bottom:0.2rem">' +
-      '<input type="checkbox" value="' + escapeHTML(f.name) + '" data-default="' + (f.default ? 'true' : 'false') + '"' + (f.default ? ' checked' : '') + ' disabled> ' +
+      '<input type="checkbox" value="' + escapeHTML(f.name) + '" data-default="' + (f.is_default ? 'true' : 'false') + '"' + (f.is_default ? ' checked' : '') + ' disabled> ' +
       escapeHTML(f.description) +
       '</label>'
     ).join('')

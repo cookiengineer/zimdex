@@ -1,4 +1,10 @@
 github.com/cookiengineer/gozim v0.1.2 h1:KOXV1sdPKud7S0CMoNfXdBjFFAzD72+OsarbrAorCEA=
 github.com/cookiengineer/gozim v0.1.2/go.mod h1:Iixr1ZVBhJknfnzQcCmsgov+SRVlIPY8PvpK6wotCbI=
+github.com/dop251/goja v0.0.0-20260822123354-58e940e0d230 h1:IbnYnQ6X6nkyeAh08QsmZkObNOh/FVtAAmAOFKZ9wys=
+github.com/dop251/goja v0.0.0-20260822123354-58e940e0d230/go.mod h1:u8yZRUavu+N4EnFFy6J5fVtjE7lEcZ2YyV2GcBXY9c8=
+github.com/go-sourcemap/sourcemap v2.1.3+incompatible h1:W1iEw64niKVGogNgBN3ePyLFfuisuzeidWPMPWmECqU=
+github.com/go-sourcemap/sourcemap v2.1.3+incompatible/go.mod h1:F8jJfvm2KbVjc5NqelyYJmf/v5J0dwNLS2mL4sNA1Jg=
 golang.org/x/net v0.57.0 h1:K5+3DljvIuDG9/Jv9rvyMywYNFCQ9RSUY6OOTTkT+tE=
 golang.org/x/net v0.57.0/go.mod h1:KpXc8iv+r3XplLAG/f7Jsf9RPszJzdR0f58q9vGOuEU=
+golang.org/x/text v0.40.0 h1:Ub2Z6/xjgF1WrYQz2nuITOEegKFtiIy+rieRJ5lHZKs=
+golang.org/x/text v0.40.0/go.mod h1:hpnzDAfGV753zIKo+wk3u1bVKCGPbrnF7+7LBF/UHVY=
