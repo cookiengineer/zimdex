@@ -1,5 +1,7 @@
 # ZIMdex — Scraping Workflow
 
+> **Note:** [`architecture-overview.md`](./architecture-overview.md) is the canonical guide to the current codebase. This document details the scraper's URL lifecycle and state machines.
+
 ## Table of Contents
 
 1. [Architecture Overview](#architecture-overview)
@@ -17,17 +19,17 @@
 ## Architecture Overview
 
 ```
-User API (handlers.go)
+User API (internal/server/handlers.go)
     │
     ▼
-Scraper (scraper.go)
-    ├── Queue (queue.go)          — JSON-backed persistent download list
-    ├── Downloader (downloader.go) — HTTP client with throttling, UA rotation, SSL skip
-    ├── Extractor (extractor.go)   — HTML → URL extraction via golang.org/x/net/html
-    ├── Filters (filters/)         — Plugin system for URL/HTML transformation
-    ├── Sitemap (sitemap.go)       — XML sitemap parser + recursive fetcher
-    ├── Robots  (sitemap.go)       — robots.txt parser with path matching
-    └── Builder (builder.go)       — Cache → ZIM file via gozim Writer
+Scraper (internal/archive/Scraper.go)
+    ├── Queue (io/zimfs/Queue.go)            — JSON-backed persistent download list
+    ├── Downloader (internal/archive/downloader.go) — HTTP client, throttling, UA rotation, SSL skip
+    ├── Extractor (internal/archive/extractor.go)   — HTML → URL extraction via golang.org/x/net/html
+    ├── Filters (filters/)                   — Plugin system for URL/HTML transformation
+    ├── Sitemap (internal/archive/sitemap.go) — XML sitemap parser + recursive fetcher
+    ├── Robots  (internal/archive/sitemap.go) — robots.txt parser with path matching
+    └── Builder (io/zimfs/Builder.go)         — Cache → ZIM file via gozim Writer
 ```
 
 ---
@@ -40,21 +42,21 @@ A URL goes through these transformations from discovery to filesystem storage:
  1. RAW URL (from HTML, sitemap, or seed)
     │
     ▼
- 2. CanonicalizeURL()     — lowercase host, strip fragment, strip default ports,
-    │                       filter tracking params (via filters.FilterTrackers)
+ 2. utils/urls.Canonicalize()  — lowercase host, strip fragment, strip default ports,
+    │                            filter tracking params (via filters.FilterTrackers)
     ▼
- 3. FilterURL()           — mediawiki: returns nil to skip action/namespace pages,
-    │                       phpbb: skips memberlist/posting/ucp/download/post
-    │                       permalinks; tracking: strips utm_*/fbclid/gclid/etc.
-    ▼                       script: no-op (returns same URL)
- 4. RewriteURL()          — mediawiki: transforms index.php?title=X → X.html
-    │   (zimURL,           as canonical path, keeps original as the download URL.
-    │    webURL)            .html → index.php?title=X reverse mapping for
-    │                       URLs that were already rewritten in HTML.
+ 3. filters.ApplyFilterURL()   — mediawiki: returns nil to skip action/namespace pages,
+    │                            phpbb: skips memberlist/posting/ucp/download/post
+    │                            permalinks; tracking: strips utm_*/fbclid/gclid/etc.
+    ▼                            script: no-op (returns same URL)
+ 4. filters.ApplyRewriteURL()  — mediawiki: transforms index.php?title=X → X.html
+    │   (zimURL,                as canonical path, keeps original as the download URL.
+    │    webURL)                 .html → index.php?title=X reverse mapping for
+    │                            URLs that were already rewritten in HTML.
     ▼
- 5. QueueEntry.Path()     — derives the filesystem cache path and ZIM path
-    │   (hostname,            ? and & encoded as %3F/%26 for filesystem safety
-    │    localPath,           ZIM path keeps raw ? and &
+ 5. QueueEntry.Path()          — derives the filesystem cache path and ZIM path
+    │   (hostname,               ? and & encoded as %3F/%26 for filesystem safety
+    │    localPath,              ZIM path keeps raw ? and &
     │    zimPath)
     ▼
  6. QueueEntry
@@ -93,7 +95,7 @@ Each `QueueEntry` transitions through these states:
                ┌──────────┐
      Add() ──► │ pending  │  (or directly → downloaded if cached on disk)
                └────┬─────┘
-                    │ PopPending()
+                     │ Get(type)
                ┌────▼───────┐
                │ downloading │◄──────────────┐
                └────┬───────┘                │
@@ -103,18 +105,18 @@ Each `QueueEntry` transitions through these states:
      downloaded   failed   (retry)           │
            │        │        │               │
            │        │        └── ErrRetry ───┘
-           │        │        (worker sets Status=StatusPending)
+            │        │        (worker sets Status=QueueEntryStatusPending)
            │        │
            ▼        ▼
         [final]  [max retries exceeded → final]
 ```
 
 **Critical rules:**
-- Only `pending` entries are returned by `PopPending()`
-- `PopPending()` sets status to `downloading` and adjusts stats
+- Only `pending` entries are returned by `Get(type)`
+- `Get(type)` sets status to `downloading` and adjusts stats
 - If download fails with `ErrRetry`, the worker MUST set status back to `pending` so it's retried (was bug #2)
-- If `retry_count > maxRetries` (3), status becomes `failed` permanently
-- `ResetStale()` on scraper restart resets `failed` + `downloading` → `pending` (retry_count = 0)
+- If `retries > maxRetries` (3), status becomes `failed` permanently
+- `Reset()` on scraper restart resets `failed` + `downloading` → `pending` (`retries = 0`)
 - Downloaded entries are NEVER reset — they survive restarts
 
 ---
@@ -152,22 +154,22 @@ Each `QueueEntry` transitions through these states:
 worker(ctx, entryType):
   loop:
     1. Check ctx.Done() → return (shutdown signal)
-    2. Check scraper.status != "running" → return (paused/stopped)
-    3. entry = queue.PopPending(entryType)
-       Page workers also try PopPending(ExternalPage) if no primary pages available
-    4. if entry == nil:
+    2. Check scraper.status != "running" → sleep 200ms, continue
+    3. entry = queue.Get(entryType)
+       Page workers also try Get(QueueEntryTypeExternalPage) if no primary pages available
+    4. if err == "no entry":
          if PendingCount == 0 AND DownloadingCount == 0:
            set status = "complete", save queue, return
          sleep 500ms, continue
-     5. downloader.Download(ctx, entry)
+      5. downloader.Download(ctx, entry)
        - Uses entry.WebURL for the HTTP GET
        - On success: sets entry.Status = Downloaded, saves to cache
        - On 3xx redirect: returns ErrRedirect → worker enqueues redirect URL
        - On retryable error: returns ErrRetry → worker sets Status = Pending
        - On fatal error: sets Status = Failed
     6. trackActivity(entry) — records in ring buffer for UI
-    7. RecalcStats() — syncs queue stats with actual entry statuses
-    8. If page (EntryTypePage or EntryTypeExternalPage) AND downloaded:
+    7. queue.Set(entry)     — persists status/stat changes
+    8. If page (Page or ExternalPage) AND downloaded:
          extractAndEnqueue(entry):
            a. Read ORIGINAL HTML from cache (not patched)
            b. Create Extractor:
@@ -176,11 +178,11 @@ worker(ctx, entryType):
               - External host pages: NewExtractorAssetsOnly (FollowPages=false)
                 → extracts assets only (no page link following)
            c. For each URL:
-               - FilterURL (skip if nil, keep otherwise)
-               - RewriteURL (get zimURL + webURL)
+               - filters.ApplyFilterURL (skip if nil, keep otherwise)
+               - filters.ApplyRewriteURL (get zimURL + webURL)
                - robots.IsAllowed check
-               - queue.EnqueueURL(rawURL, html, referrer, type) — dedup via urlIndex
-    9. queue.Save() — atomic write to JSON
+               - queue.Enqueue(rawURL, referrer, type) — dedup via urlIndex
+    9. queue.Write() — atomic write to JSON
 ```
 
 ### Why FilterHTML is NOT applied during extraction
@@ -217,15 +219,22 @@ Build phase:
 
 ```
 filters/
-├── Filter.go         — Filter interface, URLRewriter interface, Registry
-├── ApplyFilterURL.go — runs Detect + FilterURL across enabled filters
-├── ApplyRewriteURL.go— runs RewriteURL across enabled filters
-├── MediaWiki.go      — MediaWikiFilter (detects MW pages, rewrites paths, patches HTML)
-├── PHPBB.go          — PHPBBFilter (detects phpBB pages, rewrites view*/search paths)
-├── VBulletin.go      — VBulletinFilter (detects vB pages, rewrites forum/thread paths)
-├── Scripts.go        — ScriptFilter (strips <script> tags from HTML)
-├── Trackers.go       — TrackingFilter (strips utm_*, fbclid, gclid, ref, etc.)
-└── Sanitizer.go      — HTML node sanitizer used by Scripts/Trackers
+├── Filter.go         — Filter interface, URLRewriter interface
+├── Registry.go       — Registry of available filters
+├── Get.go            — Select filters by name
+├── Detect.go         — Detect(default + content-based) → []names
+├── ApplyFilterHTML.go— run Detect + FilterHTML across enabled filters
+├── ApplyFilterCSS.go — run Detect + FilterCSS across enabled filters
+├── ApplyFilterJS.go  — run Detect + FilterJS across enabled filters
+├── ApplyFilterURL.go — run Detect + FilterURL across enabled filters
+├── ApplyRewriteURL.go— run RewriteURL across enabled filters
+├── MediaWiki.go      — MediaWiki filter (detects MW pages, rewrites paths, patches HTML)
+├── PHPBB.go          — PHPBB filter (detects phpBB pages, rewrites view*/search paths)
+├── VBulletin.go      — VBulletin filter (detects vB pages, rewrites forum/thread paths)
+├── Scripts.go        — Script filter (strips <script> tags, event handlers, spoofing JS)
+├── Trackers.go       — Tracking filter (strips utm_*, fbclid, gclid, ref, etc.)
+├── Sanitizer.go      — HTML node sanitizer used by Scripts/Trackers
+└── Zim.go            — Rewrites URLs to /<zimfile>/<host><path> render paths
 ```
 
 ### Filter Interface
@@ -234,9 +243,12 @@ filters/
 type Filter interface {
     Name() string
     Description() string
+    IsDefault() bool
     Detect(*url.URL, []byte) bool               // does filter apply?
     FilterURL(*url.URL) *url.URL                // returns nil to skip, or filtered URL
-    FilterHTML(*url.URL, []byte) []byte         // transform cached HTML
+    FilterHTML(*url.URL, []byte) []byte         // transform HTML
+    FilterCSS(*url.URL, []byte) []byte          // transform CSS
+    FilterJS(*url.URL, []byte) []byte           // transform JS
 }
 ```
 
@@ -248,21 +260,23 @@ type URLRewriter interface {
 }
 ```
 
+`filters.Registry` = `{ MediaWiki, PHPBB, VBulletin, Scripts, Trackers }`. `Scripts` and `Trackers` are defaults. `filters.Zim` is not in the registry — it is constructed at render time with the current ZIM filename.
+
 ### Filter execution order during extraction
 
 ```
-For each extracted URL:
-  1. FilterURL(rawURL)          — all enabled filters
+For each extracted URL (inside Queue.Enqueue):
+  1. filters.ApplyFilterURL(rawURL, nil, referrer)   — all enabled filters
      Returns nil → skip entirely
      Returns url  → continue (e.g. sid stripped)
 
-  2. RewriteURL(filteredURL)    — all enabled filters that implement URLRewriter
+  2. filters.ApplyRewriteURL(filteredURL)            — enabled filters implementing URLRewriter
      Returns (zimURL, webURL)
      zimURL = clean path for filesystem/ZIM storage
      webURL = actual URL for HTTP request (defaults to filteredURL if nil)
 
-  3. robots.IsAllowed(url)
-  4. queue.EnqueueURL(rawURL, html, referrer, type)
+  3. robots.IsAllowed(url)                           — in Scraper.extractAndEnqueue
+  4. queue.Enqueue(rawURL, referrer, type)
      → QueueEntry{WebURL: webURL, ZimURL: zimURL, ...}
 ```
 
@@ -270,9 +284,9 @@ For each extracted URL:
 
 ```
 For each seed URL:
-  1. queue.EnqueueURL(seedURL, nil, seedURL, Page)
-  2. FilterURL(seedURL)         — skip if nil
-  3. RewriteURL(filteredURL)    — transform path
+  1. queue.Enqueue(seedURL, seedURL, QueueEntryTypePage)
+  2. filters.ApplyFilterURL(seedURL)   — skip if nil
+  3. filters.ApplyRewriteURL(filteredURL) — transform path
   4. queue.Add(entry)
 ```
 
@@ -327,21 +341,20 @@ For each seed URL:
 ## Builder Pipeline
 
 ```
-BuildZIM(dataDir, queue, filterNames):
-  1. Get all Status=downloaded entries
+Builder.Build(queue)   (io/zimfs/Builder.go):
+  1. Get all Status=downloaded entries (error if none)
   2. Generate filename: {host}-{YYYY-MM-DD}.zim (append -2, -3 if exists)
   3. Create gozim Writer:
-     - CompressionZstd
+     - SetCompression(CompressionZstd)
      - SetIndexing(true, "eng")
-     - SetMainPath(firstEntry.ZimPath)
+     - SetMainPath(downloaded[0].Path())
   4. For each downloaded entry:
-     - Read file from dataDir/entry.Path (ORIGINAL content from cache)
-     - Apply FilterHTML to the data (rewrite links, strip scripts, etc.)
-     - Extract <title> from HTML pages
-     - w.AddItem(zim.NewBytesItem(entry.ZimPath, mimeType, title, PATCHED_data))
+     - entry.HTML() applies FilterHTML to the cached data (rewrite links, strip scripts, etc.)
+     - entry.Title() extracts <title> from HTML pages
+     - w.AddItem(zim.NewBytesItem(entry.Path(), entry.MimeType, title, html))
   5. Add metadata: Title, Creator="ZIMdex", Date, Language="eng", Source, Description
   6. w.Finish() → closes and finalizes ZIM file
-  7. Trigger manager.Reload() to pick up new ZIM
+  7. handlers.handleArchiveBuild calls manager.Add(filepath.Base(zimPath)) to load the new ZIM
 ```
 
 Note: Entries span both the primary host and any CDN/external hosts. All are bundled into one ZIM with their hostname-based paths.
@@ -356,9 +369,9 @@ Note: Entries span both the primary host and any CDN/external hosts. All are bun
 ├── hostname-YYYY-MM-DD.zim         # Built ZIM file
 ├── hostname-YYYY-MM-DD-2.zim       # Subsequent build (if file exists)
 │
-├── hostname.json                   # Download queue for the entire scrape job
-│                                   # Contains all entries: primary host pages,
-│                                   # assets from any host, and external pages
+├── hostname_YYYY-MM-DD.json          # Download queue for the entire scrape job (dots → _)
+│                                     # Contains all entries: primary host pages,
+│                                     # assets from any host, and external pages
 │
 ├── hostname/                       # Primary host's filesystem cache
 │   ├── index.php%3Ftitle=...       # URL-encoded paths for filesystem safety
@@ -380,24 +393,24 @@ Note: Entries span both the primary host and any CDN/external hosts. All are bun
 
 1. **WebURL is authoritative for HTTP**: The downloader MUST use `entry.WebURL` for the HTTP GET, never `entry.ZimURL`. `ZimURL` is only a storage-path alias produced by `RewriteURL` and is never fetched directly.
 
-2. **Reset pending on retry**: After `ErrRetry`, the worker MUST set `entry.Status = StatusPending` so `PopPending` can pick it up again.
+2. **Reset pending on retry**: After `ErrRetry`, the worker MUST set `entry.Status = QueueEntryStatusPending` so `Get(type)` can pick it up again.
 
 3. **Both counts for completion**: Workers check `PendingCount == 0 AND DownloadingCount == 0` before declaring "complete". Checking only one causes premature exit.
 
-4. **RecalcStats after every download**: The downloader sets entry status directly, bypassing `queue.UpdateEntry()`. The worker calls `queue.RecalcStats()` to sync stats.
+4. **Stats stay in sync via Set()**: The downloader sets entry status directly; the worker calls `queue.Set(entry)`, which adjusts `QueueInfo` counters. `refresh_info` reconciles on `Read`/`Write`.
 
-5. **FilterHTML only at build time**: HTML must NOT be patched during scraping. The cache preserves the original server response. FilterHTML runs during the ZIM build step, after all URL extraction/filtering is complete. This ensures FilterURL sees unmodified URLs and can correctly detect and skip namespace/action pages.
+5. **FilterHTML only at build time**: HTML must NOT be patched during scraping. The cache preserves the original server response. FilterHTML runs during the ZIM build step (in `Builder.Build` via `entry.HTML()`), after all URL extraction/filtering is complete. This ensures FilterURL sees unmodified URLs and can correctly detect and skip namespace/action pages.
 
-6. **RewriteURL after FilterURL**: FilterURL decides keep/skip on the ORIGINAL URL. RewriteURL transforms the kept URL for path generation. Both run on every kept URL during extraction. FilterHTML runs during build, not extraction.
+6. **RewriteURL after FilterURL**: FilterURL decides keep/skip on the ORIGINAL URL. RewriteURL transforms the kept URL for path generation. Both run on every kept URL during extraction (inside `Queue.Enqueue`). FilterHTML runs during build, not extraction.
 
-7. **Seed URLs need URL-based detection too**: `queue.EnqueueURL` passes the seed URL as the referrer to `ApplyFilterURL`, so content-based filters (MediaWiki, PHPBB) fall back to URL patterns when no HTML is available.
+7. **Seed URLs need URL-based detection too**: `Queue.Enqueue` passes the seed URL as the referrer to `ApplyFilterURL`, so content-based filters (MediaWiki, PHPBB) fall back to URL patterns when no HTML is available.
 
-8. **Queue stats must be consistent**: `PopPending` adjusts stats (pending--, downloading++). `Downloader` sets entry status directly. `RecalcStats()` reconciles.
+8. **Queue stats must be consistent**: `Get(type)` adjusts stats (pending--, downloading++). `Downloader` sets entry status directly. `Set()` and `refresh_info` reconcile.
 
-9. **Atomic queue saves**: Write to `.tmp` file, then `os.Rename` to avoid corruption on crash.
+9. **Queue persisted after each entry update**: The worker calls `queue.Write()` after each download/update (non-atomic `os.WriteFile`). The queue is re-read on `Continue()`/restart.
 
 10. **No `C/` prefix in ZIM paths**: The namespace is a separate dirent field. Entry paths should NOT include the `C/` prefix.
 
 11. **Disk cache detection on Add()**: `queue.Add()` checks if a file already exists at `dataDir/entry.Path` before enqueuing as pending. If the file exists with content (>0 bytes), the entry is added as `downloaded` directly — bypassing the entire download pipeline. On resume/restart, this allows previously downloaded entries to be recognized and the queue to be reconstructed from the filesystem cache.
 
-12. **External page extraction is assets-only**: When an external page (different hostname from the primary scrape target) is downloaded, its assets (images, CSS, JS, etc.) are extracted via `NewExtractorAssetsOnly` (FollowPages=false). Its own page links are NOT followed — external pages are single-depth only. This preserves linked articles (e.g., from news sites or wiki references) without unbounded crawling. External `<a>` and `<iframe>` links from primary host pages are classified as `EntryTypeExternalPage` rather than being discarded.
+12. **External page extraction is assets-only**: When an external page (different hostname from the primary scrape target) is downloaded, its assets (images, CSS, JS, etc.) are extracted via `NewExtractorAssetsOnly` (FollowPages=false). Its own page links are NOT followed — external pages are single-depth only. This preserves linked articles (e.g., from news sites or wiki references) without unbounded crawling. External `<a>` and `<iframe>` links from primary host pages are classified as `QueueEntryTypeExternalPage` rather than being discarded.
