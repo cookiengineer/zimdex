@@ -6,31 +6,22 @@ import routes_api "github.com/cookiengineer/zimdex/internal/server/routes/api"
 import routes_zim "github.com/cookiengineer/zimdex/internal/server/routes/zim"
 import "github.com/cookiengineer/zimdex/io/zimfs"
 import "context"
-import _ "embed"
+import "fmt"
 import "log"
 import "net/http"
+import "path/filepath"
+import "runtime"
 import "strconv"
+import "strings"
 import "sync"
 
-//go:embed templates/index.html
-var indexHTML string
-
-//go:embed templates/archive.html
-var archiveHTML string
-
-func serveTemplate(w http.ResponseWriter, name string) {
-	var data string
-	if name == "index.html" {
-		data = indexHTML
-	} else if name == "archive.html" {
-		data = archiveHTML
-	} else {
-		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-		return
+var publicDir = func() string {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		return "public"
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(data))
-}
+	return filepath.Join(filepath.Dir(file), "..", "..", "public")
+}()
 
 type Server struct {
 	manager   *zimfs.Manager
@@ -65,26 +56,23 @@ func (server *Server) registerRoutes() {
 		DataDir:   server.manager.Folder,
 	}
 
-	server.mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/index.html", http.StatusSeeOther)
+	file_server := http.FileServer(http.Dir(publicDir))
+
+	server.mux.HandleFunc("GET /", func(response http.ResponseWriter, request *http.Request) {
+
+		if routes_zim.IsPath(request.URL.Path) {
+
+			if strings.HasSuffix(request.URL.Path, "/") {
+				http.Redirect(response, request, fmt.Sprintf("%sindex.html", request.URL.Path), http.StatusSeeOther)
+			} else {
+				routes_zim.Render(server.manager, response, request)
+			}
+
+		} else {
+			file_server.ServeHTTP(response, request)
+		}
+
 	})
-
-	server.mux.HandleFunc("GET /index.html", func(w http.ResponseWriter, r *http.Request) {
-		serveTemplate(w, "index.html")
-	})
-
-	server.mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})
-
-	server.mux.HandleFunc("GET /archive.html", func(w http.ResponseWriter, r *http.Request) {
-		serveTemplate(w, "archive.html")
-	})
-
-
-
-
-
 
 	server.mux.HandleFunc("GET /api/search", func(response http.ResponseWriter, request *http.Request) {
 		routes_api.Search(server.manager, response, request)
@@ -96,10 +84,6 @@ func (server *Server) registerRoutes() {
 
 	server.mux.HandleFunc("GET /api/filters",  func(response http.ResponseWriter, request *http.Request) {
 		routes_api.Filters(response, request)
-	})
-
-	server.mux.HandleFunc("GET /{zimfile}/{zimpath...}", func(response http.ResponseWriter, request *http.Request) {
-		routes_zim.Render(server.manager, response, request)
 	})
 
 

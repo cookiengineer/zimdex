@@ -1,1 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZIMdex — Offline Search Engine</title>
+<style>
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --text: #e0e0e0;
+  --text-secondary: #a0a0b0;
+  --accent: #0f3460;
+  --highlight: #e94560;
+  --border: #2a2a4a;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+header {
+  text-align: center;
+  padding: 4rem 1rem 2rem;
+}
+header h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--highlight);
+  margin-bottom: 0.5rem;
+}
+header p {
+  color: var(--text-secondary);
+  font-size: 1rem;
+}
+main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 1rem 4rem;
+}
+.search-box {
+  position: relative;
+  margin-bottom: 2rem;
+}
+.search-box input {
+  width: 100%;
+  padding: 1rem 1.25rem;
+  font-size: 1.1rem;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s;
+}
+.search-box input:focus {
+  border-color: var(--highlight);
+}
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.result {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+}
+.result .title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+.result .title a {
+  color: var(--highlight);
+  text-decoration: none;
+}
+.result .title a:hover { text-decoration: underline; }
+.result .snippet {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0.25rem 0;
+}
+.result .snippet b { color: var(--text); }
+.result .meta {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-top: 0.5rem;
+}
+.result .score {
+  background: var(--accent);
+  color: var(--text);
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.empty-state {
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-secondary);
+}
+.loading { text-align: center; padding: 2rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ZIMdex</h1>
+  <p>Offline Search Engine — <span id="archive-count">0</span> archive(s) loaded</p>
+</header>
+<main>
+  <div class="search-box">
+    <input
+      type="search"
+      id="search-input"
+      placeholder="Search archived content..."
+      autocomplete="off"
+      autofocus
+    >
+  </div>
+  <div class="results" id="results"></div>
+  <div class="empty-state" id="empty-state">
+    <p>Enter a search query to find content in your local ZIM archives.</p>
+    <p style="margin-top: 1rem;">No archives? Go to <a href="/archive.html" style="color: var(--highlight);">Archive</a> to scrape a website.</p>
+  </div>
+</main>
+<script>
+const input = document.getElementById('search-input')
+const results = document.getElementById('results')
+const emptyState = document.getElementById('empty-state')
+const archiveCount = document.getElementById('archive-count')
 
+async function fetchJSON(url) {
+  const resp = await fetch(url)
+  return resp.json()
+}
+
+async function loadArchives() {
+  try {
+    const data = await fetchJSON('/api/archives')
+    archiveCount.textContent = data.archives ? data.archives.length : 0
+  } catch(e) {}
+}
+
+async function doSearch(query) {
+  if (!query.trim()) {
+    results.innerHTML = ''
+    emptyState.style.display = 'block'
+    return
+  }
+  emptyState.style.display = 'none'
+  results.innerHTML = '<div class="loading">Searching...</div>'
+  try {
+    const data = await fetchJSON(`/api/search?q=${encodeURIComponent(query)}&limit=20`)
+    if (!data.results || data.results.length === 0) {
+      results.innerHTML = '<div class="empty-state"><p>No results found for "' + escapeHTML(query) + '"</p></div>'
+      return
+    }
+    results.innerHTML = data.results.map(r => `
+      <div class="result">
+        <div class="title"><a href="${encodeURI(r.url || '#')}">${escapeHTML(r.title)}</a> <span class="score">${r.score.toFixed(1)}</span></div>
+        <div class="snippet">${r.snippet || ''}</div>
+        <div class="meta">${escapeHTML(r.file || '')} · ${r.word_count || 0} words</div>
+      </div>
+    `).join('')
+  } catch(e) {
+    results.innerHTML = '<div class="empty-state"><p>Search failed. Is the server running?</p></div>'
+  }
+}
+
+function escapeHTML(str) {
+  const div = document.createElement('div')
+  div.textContent = str
+  return div.innerHTML
+}
+
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    doSearch(input.value)
+  }
+})
+
+loadArchives()
+</script>
+</body>
+</html>

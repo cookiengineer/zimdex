@@ -11,10 +11,9 @@ func Render(manager *zimfs.Manager, response http.ResponseWriter, request *http.
 
 	if request.Method == http.MethodGet {
 
-		zim_file := request.PathValue("zimfile")
-		zim_path := request.PathValue("zimpath")
+		zim_file, zim_path, ok := split_zim_path(request.URL.Path)
 
-		if strings.HasSuffix(zim_file, ".zim") {
+		if ok == true {
 
 			if request.URL.RawQuery != "" {
 				zim_path = fmt.Sprintf("%s?%s", zim_path, request.URL.RawQuery)

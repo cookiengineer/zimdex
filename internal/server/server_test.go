@@ -26,26 +26,10 @@ func newTestServerWithMux(t *testing.T) (*Server, *http.ServeMux) {
 	return srv, srv.mux
 }
 
-func TestRootRedirect(t *testing.T) {
+func TestRoot(t *testing.T) {
 	_, mux := newTestServerWithMux(t)
 
 	req := httptest.NewRequest("GET", "/", nil)
-	rec := httptest.NewRecorder()
-
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusSeeOther {
-		t.Errorf("expected 303, got %d", rec.Code)
-	}
-	if loc := rec.Header().Get("Location"); loc != "/index.html" {
-		t.Errorf("expected Location /index.html, got %q", loc)
-	}
-}
-
-func TestIndexHTML(t *testing.T) {
-	_, mux := newTestServerWithMux(t)
-
-	req := httptest.NewRequest("GET", "/index.html", nil)
 	rec := httptest.NewRecorder()
 
 	mux.ServeHTTP(rec, req)
@@ -59,6 +43,22 @@ func TestIndexHTML(t *testing.T) {
 	}
 	if len(rec.Body.Bytes()) == 0 {
 		t.Error("expected non-empty body")
+	}
+}
+
+func TestIndexHTML(t *testing.T) {
+	_, mux := newTestServerWithMux(t)
+
+	req := httptest.NewRequest("GET", "/index.html", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMovedPermanently {
+		t.Errorf("expected 301, got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "./" {
+		t.Errorf("expected Location ./, got %q", loc)
 	}
 }
 
@@ -142,16 +142,49 @@ func TestRenderMissingZIM(t *testing.T) {
 	}
 }
 
-func TestRenderNoZimSuffix(t *testing.T) {
+func TestStaticAsset(t *testing.T) {
 	_, mux := newTestServerWithMux(t)
 
-	req := httptest.NewRequest("GET", "/notazim/example.com/index.html", nil)
+	req := httptest.NewRequest("GET", "/design/index.css", nil)
 	rec := httptest.NewRecorder()
 
 	mux.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+	contentType := rec.Header().Get("Content-Type")
+	if !strings.HasPrefix(contentType, "text/css") {
+		t.Errorf("expected text/css content type, got %q", contentType)
+	}
+}
+
+func TestZimDirectoryRedirect(t *testing.T) {
+	_, mux := newTestServerWithMux(t)
+
+	req := httptest.NewRequest("GET", "/example.zim/path/to/", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Errorf("expected 303, got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/example.zim/path/to/index.html" {
+		t.Errorf("expected Location /example.zim/path/to/index.html, got %q", loc)
+	}
+}
+
+func TestStaticNotFound(t *testing.T) {
+	_, mux := newTestServerWithMux(t)
+
+	req := httptest.NewRequest("GET", "/notazim/example.com/page.html", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rec.Code)
 	}
 }
 
